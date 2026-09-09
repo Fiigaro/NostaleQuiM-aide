@@ -1,0 +1,76 @@
+# ============================================================================
+# PACKET SPEC -- TEMPLATE. EVERY VALUE BELOW IS A PLACEHOLDER.
+# ============================================================================
+#
+# The headers and field indices in this file are NOT correct for any server.
+# They are here to show the shape. Fill them in from the source of the emulator
+# you are actually running -- look at its packet handler classes and its
+# outgoing packet builders. Indices differ between forks and between client
+# versions, and a wrong index fails silently: you get a plausible-looking
+# number in the wrong field rather than an error.
+#
+# Field indices are 1-based and count from AFTER the header, so in
+#   "st 1 42 90 100 250 300"
+#        ^1 ^2 ^3  ^4  ^5  ^6
+#
+# 'when' discriminates when one header carries several logical events, e.g. a
+# movement packet whose first field says whether it describes us or a monster.
+# ============================================================================
+
+incoming:
+  # --- our character ---
+  stats:
+    header: "REPLACE_ME"
+    fields: {hp: 1, hp_max: 2, mp: 3, mp_max: 4}
+
+  self_moved:
+    header: "REPLACE_ME"
+    when: {1: "1"}            # e.g. entity-type field == player
+    fields: {x: 2, y: 3}
+
+  # --- other entities ---
+  entity_spawn:
+    header: "REPLACE_ME"
+    when: {1: "3"}            # e.g. entity-type field == monster
+    fields: {vnum: 2, id: 3, x: 4, y: 5, level: 6, hp_pct: 7}
+
+  entity_despawn:
+    header: "REPLACE_ME"
+    fields: {id: 2}
+
+  entity_moved:
+    header: "REPLACE_ME"
+    when: {1: "3"}
+    fields: {id: 2, x: 3, y: 4}
+
+  entity_hp:
+    header: "REPLACE_ME"
+    fields: {id: 2, hp_pct: 3}
+
+  # --- effects and bags ---
+  buff_gained:
+    header: "REPLACE_ME"
+    fields: {id: 2, duration: 3}
+
+  buff_lost:
+    header: "REPLACE_ME"
+    fields: {id: 2}
+
+  inventory:
+    header: "REPLACE_ME"
+    fields: {vnum: 2, count: 3}
+
+# Outgoing commands are format templates. The adapter supplies these names:
+#   use_skill      -> skill_id, target_id
+#   use_skill_self -> skill_id
+#   use_item       -> vnum
+#   attack         -> target_id
+#   move           -> x, y, speed
+#   pick_up        -> entity_id
+outgoing:
+  use_skill: "REPLACE_ME {skill_id} {target_id}"
+  use_skill_self: "REPLACE_ME {skill_id}"
+  use_item: "REPLACE_ME {vnum}"
+  attack: "REPLACE_ME {target_id}"
+  move: "REPLACE_ME {x} {y} {speed}"
+  pick_up: "REPLACE_ME {entity_id}"

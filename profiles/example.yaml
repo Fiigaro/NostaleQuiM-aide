@@ -1,0 +1,74 @@
+# Example farming profile.
+#
+# Every id here is a placeholder. Against a real emulator, take the skill ids,
+# item vnums and buff ids from that emulator's own data tables -- they differ
+# between forks and between game versions, and a wrong id fails silently.
+name: "sim-farmer"
+
+combat:
+  engage_radius: 12       # start a fight with anything this close
+  leash_radius: 30        # abandon a target that has dragged us this far
+  target_vnums: []        # empty = attack any monster
+  skills:
+    # Tried in descending priority; the first one off cooldown, affordable and
+    # in range wins. Keep a free range-1 fallback at priority 0 or the rotation
+    # stalls whenever the good skills are down.
+    - id: 237
+      name: "Heavy Strike"
+      priority: 20
+      cooldown: 6.0
+      mp_cost: 30
+      range: 3
+    - id: 238
+      name: "Quick Slash"
+      priority: 10
+      cooldown: 2.5
+      mp_cost: 12
+      range: 2
+    - id: 0
+      name: "Basic Attack"
+      priority: 0
+      cooldown: 1.0
+      mp_cost: 0
+      range: 1
+
+survival:
+  hp_potion:
+    vnum: 1242
+    threshold_pct: 60
+    cooldown: 3.0
+  mp_potion:
+    vnum: 1244
+    threshold_pct: 30
+    cooldown: 3.0
+  critical_hp_pct: 20     # below this with no potion left, disengage
+
+buffs:
+  - kind: skill
+    id: 250
+    buff_id: 250
+    name: "Attack Buff"
+    duration: 120.0
+    refresh_margin: 20.0  # re-cast 20s before it lapses
+    cooldown: 5.0
+  - kind: item
+    id: 1904
+    buff_id: 1904
+    name: "EXP Boost"
+    duration: 300.0
+    refresh_margin: 30.0
+    cooldown: 5.0
+
+navigation:
+  arrive_tolerance: 2
+  waypoints:
+    - [8, 8]
+    - [30, 8]
+    - [30, 30]
+    - [8, 30]
+
+runtime:
+  tick_interval: 0.2
+  global_cooldown: 0.8    # min delay between any two actions
+  move_interval: 0.3
+  max_runtime_minutes: 0  # 0 = until stopped
