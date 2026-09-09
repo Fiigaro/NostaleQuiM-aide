@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>PacketHandlerDemo</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Coeur NosSmooth : client, IPacketHandler, responders, commandes. -->
+        <PackageReference Include="NosSmooth.Core" Version="5.0.0" />
+        <!-- Paquets NosTale par defaut (say, mv, in, ...). -->
+        <PackageReference Include="NosSmooth.Packets" Version="3.6.0" />
+        <!-- Serialiseur texte + IPacketTypesRepository. -->
+        <PackageReference Include="NosSmooth.PacketSerializer" Version="2.2.7" />
+        <!-- Attributs [PacketHeader], [PacketIndex], [GenerateSerializer]. -->
+        <PackageReference Include="NosSmooth.PacketSerializer.Abstractions" Version="1.3.2" />
+
+        <!--
+            Generateur de source Roslyn : c'est LUI qui transforme un record annote
+            [GenerateSerializer] en un IStringConverter<T> concret. Sans cette
+            reference, le paquet personnalise compile mais n'a aucun convertisseur
+            et AddPacketType echouera avec une erreur de convertisseur introuvable.
+        -->
+        <PackageReference Include="NosSmooth.PacketSerializersGenerator" Version="1.1.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="packets-sample.txt">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+</Project>

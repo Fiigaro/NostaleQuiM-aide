@@ -1,0 +1,19 @@
+# Jeu de paquets rejoue par StreamNostaleClient.
+#   '<' = paquet recu du serveur (PacketSource.Server)
+#   '>' = paquet envoye par le client (PacketSource.Client)
+#   '#' = commentaire
+
+# --- paquet personnalise, deserialise en QuiMStatPacket ---
+< quim 42 2 1250 Quiz de printemps
+< quim 42 1 80 Manche de rattrapage
+< quim 77 3 2400 Grande finale
+
+# --- paquet standard de NosSmooth.Packets ---
+< say 1 42 11 Bonne chance a tous !
+> say Merci !
+
+# --- en-tete inconnue : donne un UnresolvedPacket ---
+< quimx 42 0 0 en-tete non enregistree
+
+# --- en-tete connue mais champ invalide : donne un ParsingFailedPacket ---
+< quim pas-un-nombre 2 1250 Identifiant illisible
