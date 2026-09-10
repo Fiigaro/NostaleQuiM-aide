@@ -10,24 +10,47 @@ au code.
 
 | Fichier | Rôle |
 |---|---|
+| `lancer_bot.bat` | **Double-clique ici** : ouvre l'interface, sans rien compiler |
 | `bot_gui.py` | Interface graphique : les cases de réglage + le bouton Lancer |
 | `bot_farm_nostale.py` | Moteur du bot (utilisable seul en ligne de commande) |
-| `build.bat` | Compile `BotFarmNostale.exe` |
+| `build.bat` | Compile `BotFarmNostale.exe` (optionnel) |
+| `_trouver_python.bat` | Détection de Python, utilisé par les deux `.bat` |
 | `config_bot.json` | Tes réglages, créé au premier enregistrement |
 
-## Utilisation rapide
+## Prérequis : installer Python
+
+Télécharge **Python 3.12** sur <https://www.python.org/downloads/> et, pendant
+l'installation, **coche « Add python.exe to PATH »** sur la première fenêtre.
+
+> **Attention au faux Python de Windows.** Si tu tapes `python` sans avoir rien
+> installé, Windows répond « Python est introuvable ; exécutez sans arguments
+> pour installer à partir du Microsoft Store ». Ce `python.exe`-là est un
+> raccourci vide. Installe le vrai depuis python.org. Au besoin, désactive les
+> raccourcis dans *Paramètres > Applications > Paramètres avancés des
+> applications > Alias d'exécution d'application*.
+
+## Utilisation
+
+Double-clique sur **`lancer_bot.bat`** : il demande les droits administrateur,
+installe les dépendances au premier lancement, et ouvre l'interface.
+
+En ligne de commande, l'équivalent est :
 
 ```bat
 pip install pymem pydirectinput
 python bot_gui.py
 ```
 
-À lancer **en administrateur**, sinon Windows refuse l'accès à la mémoire du jeu.
+Dans tous les cas, il faut les droits **administrateur** : sans eux, Windows
+refuse l'accès à la mémoire du jeu.
 
-## Créer l'exécutable
+## Créer l'exécutable (optionnel)
 
-Double-clique sur `build.bat`. L'exécutable apparaît dans `dist\BotFarmNostale.exe`
-et demande automatiquement les droits administrateur au lancement.
+`lancer_bot.bat` suffit pour utiliser le bot. Si tu veux quand même un fichier
+autonome, double-clique sur `build.bat` : l'exécutable apparaît dans
+`dist\BotFarmNostale.exe` et demande automatiquement les droits administrateur.
+
+En cas d'échec, le détail est écrit dans `build_log.txt`.
 
 Ton antivirus peut le mettre en quarantaine : lire la mémoire d'un autre processus
 et injecter des frappes clavier, c'est la signature comportementale d'un trojan.
