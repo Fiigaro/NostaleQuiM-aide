@@ -28,6 +28,8 @@ from bot_farm_nostale import (
     CONFIG_DEFAUT,
     BotFarm,
     charger_config,
+    est_candidat_jeu,
+    lister_processus,
     sauver_config,
     valider_config,
 )
@@ -93,6 +95,87 @@ def parser_nombre(texte, libelle, entier=False, mini=None, maxi=None):
     if maxi is not None and valeur > maxi:
         raise ValueError("%s : la valeur doit être ≤ %s." % (libelle, maxi))
     return valeur
+
+
+# ---------------------------------------------------------------------------
+# SÉLECTION DU PROCESSUS DU JEU
+# ---------------------------------------------------------------------------
+class SelecteurProcessus(tk.Toplevel):
+    """Liste les processus en cours pour éviter d'avoir à deviner le nom du .exe."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Choisir le processus du jeu")
+        self.geometry("460x500")
+        self.minsize(400, 380)
+        self.transient(parent)
+        self.resultat = None
+        self.processus = []
+
+        ttk.Label(self, text="Lance le jeu, puis choisis son processus dans la liste.\n"
+                             "Les candidats probables sont marqués d'une étoile et "
+                             "affichés en premier.",
+                  justify="left", wraplength=420).pack(anchor="w", padx=10, pady=(10, 6))
+
+        recherche = ttk.Frame(self)
+        recherche.pack(fill="x", padx=10)
+        ttk.Label(recherche, text="Filtrer :").pack(side="left")
+        self.filtre = tk.StringVar()
+        self.filtre.trace_add("write", lambda *_: self._remplir())
+        ttk.Entry(recherche, textvariable=self.filtre).pack(side="left", fill="x",
+                                                            expand=True, padx=6)
+        ttk.Button(recherche, text="Actualiser", command=self.actualiser).pack(side="left")
+
+        colonnes = ("nom", "pid")
+        self.liste = ttk.Treeview(self, columns=colonnes, show="headings", height=16)
+        self.liste.heading("nom", text="Processus")
+        self.liste.heading("pid", text="PID")
+        self.liste.column("nom", width=320, anchor="w")
+        self.liste.column("pid", width=80, anchor="center")
+        self.liste.pack(fill="both", expand=True, padx=10, pady=8)
+        self.liste.bind("<Double-1>", lambda _: self._choisir())
+        self.liste.tag_configure("candidat", foreground="#0A7D28")
+
+        boutons = ttk.Frame(self)
+        boutons.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Button(boutons, text="Annuler", command=self.destroy).pack(side="right")
+        ttk.Button(boutons, text="Choisir", command=self._choisir).pack(side="right", padx=6)
+
+        self.actualiser()
+        self.grab_set()
+
+    def actualiser(self):
+        self.processus = lister_processus()
+        self._remplir()
+
+    def _remplir(self):
+        self.liste.delete(*self.liste.get_children())
+
+        if not self.processus:
+            self.liste.insert("", "end", values=("Aucun processus listé "
+                                                 "(Windows requis)", ""))
+            return
+
+        filtre = self.filtre.get().strip().lower()
+        visibles = [p for p in self.processus if filtre in p[0].lower()]
+        # Les candidats plausibles d'abord, le reste ensuite.
+        visibles.sort(key=lambda p: (not est_candidat_jeu(p[0]), p[0].lower()))
+
+        for nom, pid in visibles:
+            candidat = est_candidat_jeu(nom)
+            self.liste.insert("", "end",
+                              values=(("★  " if candidat else "     ") + nom, pid),
+                              tags=("candidat",) if candidat else ())
+
+    def _choisir(self):
+        selection = self.liste.selection()
+        if not selection:
+            return
+        valeur = self.liste.item(selection[0], "values")[0]
+        nom = valeur.replace("★", "").strip()
+        if nom.endswith(".exe") or nom:
+            self.resultat = nom
+        self.destroy()
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +261,10 @@ class InterfaceBot(tk.Tk):
 
         haut = ttk.Frame(cadre)
         haut.pack(fill="x", pady=(10, 4))
-        self._champ(haut, 0, 0, "Nom du processus :", "PROCESS_NAME", largeur=30)
-        self._champ(haut, 0, 1, "Module (optionnel) :", "MODULE_NAME", largeur=24)
+        self._champ(haut, 0, 0, "Nom du processus :", "PROCESS_NAME", largeur=26)
+        ttk.Button(haut, text="Détecter...", command=self.detecter_processus).grid(
+            row=0, column=2, sticky="w", padx=(0, 12))
+        self._champ(haut, 0, 2, "Module (optionnel) :", "MODULE_NAME", largeur=22)
 
         aide = ("Offsets en hexadécimal. Offset simple : 0x004B21C0   |   "
                 "Chaîne de pointeurs : 0x004B21C0, 0x1C, 0x8")
@@ -450,6 +535,14 @@ class InterfaceBot(tk.Tk):
                                "Remettre tous les réglages à leurs valeurs par défaut ?"):
             self.appliquer_config(copy.deepcopy(CONFIG_DEFAUT))
             self.journal("[Config] Valeurs par défaut restaurées (non enregistrées).")
+
+    def detecter_processus(self):
+        """Ouvre la liste des processus en cours et reprend celui choisi."""
+        selecteur = SelecteurProcessus(self)
+        self.wait_window(selecteur)
+        if selecteur.resultat:
+            self.vars["PROCESS_NAME"].set(selecteur.resultat)
+            self.journal("[Config] Processus sélectionné : %s" % selecteur.resultat)
 
     def tester_lecture(self):
         """Lit une fois toutes les valeurs suivies et les affiche dans le journal."""

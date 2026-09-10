@@ -56,6 +56,18 @@ Ton antivirus peut le mettre en quarantaine : lire la mémoire d'un autre proces
 et injecter des frappes clavier, c'est la signature comportementale d'un trojan.
 Ajoute une exclusion si nécessaire.
 
+## Trouver le nom du processus
+
+Tu n'as pas à le deviner : lance le jeu, puis clique sur **« Détecter... »** à
+côté du champ *Nom du processus*. La liste des processus en cours s'affiche, les
+candidats plausibles (nom contenant `nos`, `tale`, `client`, `game`, `launcher`)
+remontent en tête avec une étoile. Tu double-cliques, c'est réglé.
+
+L'équivalent manuel : `Ctrl+Maj+Échap` pour ouvrir le Gestionnaire des tâches,
+onglet **Détails**, et repérer la ligne du jeu — la colonne *Nom* donne
+exactement ce qu'attend le champ. Le nom par défaut `NostaleClientX.exe` est
+celui d'un client courant, mais chaque serveur privé renomme son exécutable.
+
 ## Régler les offsets
 
 Les offsets se trouvent avec Cheat Engine (recherche de valeur, filtrage après

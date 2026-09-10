@@ -174,6 +174,49 @@ def valider_config(config):
 
 
 # ---------------------------------------------------------------------------
+# LISTE DES PROCESSUS EN COURS
+# ---------------------------------------------------------------------------
+# Mots-clés servant à remonter les candidats plausibles en haut de la liste.
+INDICES_JEU = ("nos", "tale", "client", "game", "launcher")
+
+
+def lister_processus():
+    """Retourne [(nom_exe, pid), ...] trié, sans doublon.
+
+    pymem.process.list_processes() réutilise la même structure à chaque
+    itération : les champs doivent être lus dans la boucle, pas après.
+    """
+    if pymem is None:
+        return []
+
+    vus = set()
+    processus = []
+    try:
+        for entree in pymem.process.list_processes():
+            try:
+                nom = entree.szExeFile.decode("utf-8", errors="ignore")
+                pid = int(entree.th32ProcessID)
+            except Exception:
+                continue
+            if not nom or (nom, pid) in vus:
+                continue
+            vus.add((nom, pid))
+            processus.append((nom, pid))
+    except Exception:
+        # API Windows indisponible : la liste reste vide, l'appelant le signale.
+        return processus
+
+    processus.sort(key=lambda p: (p[0].lower(), p[1]))
+    return processus
+
+
+def est_candidat_jeu(nom):
+    """Vrai si le nom du processus ressemble à un client de jeu."""
+    minuscules = nom.lower()
+    return any(indice in minuscules for indice in INDICES_JEU)
+
+
+# ---------------------------------------------------------------------------
 # LECTURE MÉMOIRE
 # ---------------------------------------------------------------------------
 class MemoireNostale:
@@ -182,6 +225,8 @@ class MemoireNostale:
         self.module_name = module_name or process_name
         self.pm = None
         self.base = 0
+        # Les clients NosTale sont en 32 bits ; corrigé à la connexion.
+        self.taille_pointeur = 4
 
     def connecter(self):
         if pymem is None:
@@ -191,7 +236,17 @@ class MemoireNostale:
         if module is None:
             raise RuntimeError("Module '%s' introuvable dans le processus." % self.module_name)
         self.base = module.lpBaseOfDll
+        try:
+            self.taille_pointeur = 8 if pymem.process.is_64_bit(self.pm.process_handle) else 4
+        except Exception:
+            self.taille_pointeur = 4
         return self.base
+
+    def _lire_pointeur(self, adresse):
+        """Déréférence un pointeur, à la taille du processus visé."""
+        if self.taille_pointeur == 8:
+            return self.pm.read_ulonglong(adresse)
+        return self.pm.read_uint(adresse)
 
     def _adresse(self, spec):
         """Résout un offset simple ou une chaîne de pointeurs."""
@@ -200,7 +255,7 @@ class MemoireNostale:
                 return None
             adresse = self.base + spec[0]
             for offset in spec[1:]:
-                adresse = self.pm.read_uint(adresse) + offset
+                adresse = self._lire_pointeur(adresse) + offset
             return adresse
         return self.base + spec
 
@@ -258,6 +313,8 @@ class BotFarm:
         self.log("[Init] Connexion au processus '%s'..." % self.cfg["PROCESS_NAME"])
         base = self.mem.connecter()
         self.log("[Init] Processus attaché - adresse de base du module : 0x%X" % base)
+        self.log("[Init] Client %d bits - chaînes de pointeurs lues sur %d octets."
+                 % (self.mem.taille_pointeur * 8, self.mem.taille_pointeur))
 
     def lire_etat(self):
         """Lecture ponctuelle de toutes les valeurs suivies (bouton de test)."""
@@ -526,6 +583,8 @@ class BotFarm:
             if "ProcessNotFound" in type(erreur).__name__:
                 self.log("[Erreur] Processus '%s' introuvable. Le jeu est-il lancé ?"
                          % self.cfg["PROCESS_NAME"])
+                self.log("         Utilise le bouton « Détecter... » pour choisir le bon "
+                         "processus dans la liste.")
             else:
                 self.log("[Erreur] Impossible de s'attacher au processus : %s" % erreur)
                 self.log("         Lance le programme en tant qu'administrateur.")
