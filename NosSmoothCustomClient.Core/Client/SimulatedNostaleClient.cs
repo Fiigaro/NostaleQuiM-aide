@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
@@ -11,6 +12,7 @@ using NosSmooth.Packets.Enums.Entities;
 using NosSmooth.Packets.Server.Battle;
 using NosSmooth.Packets.Server.Entities;
 using NosSmooth.Packets.Server.Maps;
+using NosSmooth.Packets.Server.Skills;
 using NosSmooth.PacketSerializer;
 using NosSmooth.PacketSerializer.Abstractions.Attributes;
 using NosSmooth.PacketSerializer.Abstractions.Common;
@@ -55,6 +57,9 @@ public sealed class SimulatedNostaleClient : INostaleClient
     private int _monsterY;
     private long _nextMonsterId = 2001;
     private DateTimeOffset _respawnAt = DateTimeOffset.MaxValue;
+
+    // Packets the fake server owes the client later: skill-ready notifications, mostly.
+    private readonly ConcurrentQueue<(DateTimeOffset Due, IPacket Packet)> _deferred = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SimulatedNostaleClient"/> class.
@@ -178,6 +183,14 @@ public sealed class SimulatedNostaleClient : INostaleClient
             return;
         }
 
+        // Charge the cast and promise an sr once its cooldown elapses, so the rotation is driven
+        // by the server signal exactly as it would be in game.
+        if (short.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var castId) && castId != 0)
+        {
+            _playerMp = Math.Max(0, _playerMp - 40);
+            _deferred.Enqueue((DateTimeOffset.UtcNow.AddSeconds(4), new SrPacket(castId)));
+        }
+
         const int damage = 250;
         _monsterHp = Math.Max(0, _monsterHp - damage);
         var percentage = (byte)(_monsterMaxHp > 0 ? _monsterHp * 100 / _monsterMaxHp : 0);
@@ -247,6 +260,8 @@ public sealed class SimulatedNostaleClient : INostaleClient
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
+                DrainDeferred();
+
                 if (_monsterId != 0 || DateTimeOffset.UtcNow < _respawnAt)
                 {
                     continue;
@@ -259,6 +274,29 @@ public sealed class SimulatedNostaleClient : INostaleClient
         catch (OperationCanceledException)
         {
             // Normal shutdown.
+        }
+    }
+
+    private void DrainDeferred()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var pending = new List<(DateTimeOffset Due, IPacket Packet)>();
+
+        while (_deferred.TryDequeue(out var item))
+        {
+            if (item.Due <= now)
+            {
+                Enqueue(item.Packet);
+            }
+            else
+            {
+                pending.Add(item);
+            }
+        }
+
+        foreach (var item in pending)
+        {
+            _deferred.Enqueue(item);
         }
     }
 

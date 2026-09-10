@@ -7,19 +7,11 @@
     <Nullable>enable</Nullable>
     <RootNamespace>NosSmoothCustomClient</RootNamespace>
     <AssemblyName>NosSmoothCustomClient</AssemblyName>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <!-- The LocalClient/LocalBinding stack is x86 Windows only at runtime; it still
-         restores and compiles everywhere, so the project stays cross-platform buildable. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NosSmooth.Core" Version="5.0.0" />
-    <PackageReference Include="NosSmooth.Packets" Version="3.6.0" />
-    <PackageReference Include="NosSmooth.PacketSerializer" Version="2.2.7" />
-    <PackageReference Include="NosSmooth.PacketSerializersGenerator" Version="1.1.1" PrivateAssets="all" />
-    <PackageReference Include="NosSmooth.LocalClient" Version="2.2.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <ProjectReference Include="../NosSmoothCustomClient.Core/NosSmoothCustomClient.Core.csproj" />
   </ItemGroup>
 
 </Project>

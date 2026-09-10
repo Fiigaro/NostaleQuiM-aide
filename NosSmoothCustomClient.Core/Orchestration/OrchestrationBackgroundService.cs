@@ -26,6 +26,8 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private readonly ProtocolStateManager _state;
     private readonly PacketDispatcher _dispatcher;
     private readonly IMovementStrategy _movement;
+    private readonly SkillRotation _rotation;
+    private readonly BotController _controller;
     private readonly BotOptions _options;
     private readonly ILogger<OrchestrationBackgroundService> _logger;
 
@@ -37,6 +39,8 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     /// <param name="state">The state manager.</param>
     /// <param name="dispatcher">The outbound dispatcher.</param>
     /// <param name="movement">The movement strategy.</param>
+    /// <param name="rotation">The attack rotation.</param>
+    /// <param name="controller">The run/pause switch.</param>
     /// <param name="options">The bot options.</param>
     /// <param name="logger">The logger.</param>
     public OrchestrationBackgroundService
@@ -44,6 +48,8 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         ProtocolStateManager state,
         PacketDispatcher dispatcher,
         IMovementStrategy movement,
+        SkillRotation rotation,
+        BotController controller,
         BotOptions options,
         ILogger<OrchestrationBackgroundService> logger
     )
@@ -51,6 +57,8 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         _state = state;
         _dispatcher = dispatcher;
         _movement = movement;
+        _rotation = rotation;
+        _controller = controller;
         _options = options;
         _logger = logger;
     }
@@ -95,6 +103,12 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
+        if (!_controller.IsRunning)
+        {
+            // Paused: the packet pipeline keeps running, so the loop resumes on fresh state.
+            return;
+        }
+
         // Serialize the whole decision so two ticks can never interleave their outbound frames.
         using var cycle = await _state.EnterCycleAsync(ct).ConfigureAwait(false);
 
@@ -194,18 +208,39 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return true;
         }
 
-        LogPriority(2, "engagement: attacking #{0} at {1}% HP", target.EntityId, target.HpPercentage);
+        // Fixed priority: the first rotation entry that is off cooldown and affordable wins,
+        // otherwise the basic attack keeps the damage flowing rather than idling the frame.
+        var skill = _rotation.SelectNext(_state.CurrentMp);
+        var castId = skill?.CastId ?? _options.BasicAttackCastId;
+
+        LogPriority
+        (
+            2,
+            "engagement: #{0} at {1}% HP -> {2} (cast {3})",
+            target.EntityId,
+            target.HpPercentage,
+            skill?.Name ?? "attaque de base",
+            castId
+        );
 
         var attack = new UseSkillPacket
         (
-            _options.SkillCastId,
+            castId,
             target.EntityType == EntityType.Map ? EntityType.Monster : target.EntityType,
             target.EntityId,
             null,
             null
         );
 
-        Log(await _dispatcher.SendAsync(attack, ct));
+        var sent = await _dispatcher.SendAsync(attack, ct);
+
+        // Only start the cooldown if the frame actually went out.
+        if (sent.IsSuccess && skill is not null)
+        {
+            _rotation.MarkCast(skill);
+        }
+
+        Log(sent);
         return true;
     }
 

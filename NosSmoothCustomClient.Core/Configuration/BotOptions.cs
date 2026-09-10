@@ -54,9 +54,25 @@ public sealed class BotOptions
     public TimeSpan PotionCooldown { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
-    /// Gets or sets the cast id of the skill used for the attack cycle. 0 is the basic attack.
+    /// Gets or sets the cast id of the basic attack, used whenever no rotation skill is ready.
     /// </summary>
-    public short SkillCastId { get; set; }
+    public short BasicAttackCastId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the attack rotation, in priority order.
+    /// </summary>
+    /// <remarks>
+    /// The loop casts the first entry that is off cooldown and affordable; when none qualifies it
+    /// falls back to <see cref="BasicAttackCastId"/>. Cast ids, MP costs and cooldowns are
+    /// placeholders - they must be set to the character's actual skill bar.
+    /// </remarks>
+    public IReadOnlyList<SkillDefinition> Skills { get; set; } = new[]
+    {
+        new SkillDefinition(3, "Sort lourd",   60, TimeSpan.FromSeconds(12)),
+        new SkillDefinition(2, "Sort moyen",   35, TimeSpan.FromSeconds(8)),
+        new SkillDefinition(1, "Sort rapide",  20, TimeSpan.FromSeconds(4)),
+        new SkillDefinition(4, "Sort d'appoint", 15, TimeSpan.FromSeconds(3))
+    };
 
     /// <summary>
     /// Gets or sets the minimum delay between two attack frames.

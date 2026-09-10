@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NosSmoothCustomClient.Gui</RootNamespace>
+    <AssemblyName>NosSmoothCustomClient.Gui</AssemblyName>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.0.10" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.0.10" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.0.10" />
+    <!-- Lets the UI be constructed and asserted without a display, so the window is
+         verified at runtime rather than merely compiled. -->
+    <PackageReference Include="Avalonia.Headless" Version="11.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../NosSmoothCustomClient.Core/NosSmoothCustomClient.Core.csproj" />
+  </ItemGroup>
+
+</Project>

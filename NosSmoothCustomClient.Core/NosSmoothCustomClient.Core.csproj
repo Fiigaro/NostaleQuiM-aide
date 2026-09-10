@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Kept as the shared root so every namespace stays NosSmoothCustomClient.*
+         regardless of which front-end consumes the library. -->
+    <RootNamespace>NosSmoothCustomClient</RootNamespace>
+    <AssemblyName>NosSmoothCustomClient.Core</AssemblyName>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NosSmooth.Core" Version="5.0.0" />
+    <PackageReference Include="NosSmooth.Packets" Version="3.6.0" />
+    <PackageReference Include="NosSmooth.PacketSerializer" Version="2.2.7" />
+    <PackageReference Include="NosSmooth.PacketSerializersGenerator" Version="1.1.1" PrivateAssets="all" />
+    <PackageReference Include="NosSmooth.LocalClient" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
