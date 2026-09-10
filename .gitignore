@@ -1,0 +1,11 @@
+# Compilation PyInstaller
+build/
+dist/
+*.spec
+
+# Réglages locaux du bot
+config_bot.json
+
+# Python
+__pycache__/
+*.py[cod]
