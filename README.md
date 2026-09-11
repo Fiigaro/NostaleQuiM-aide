@@ -19,6 +19,14 @@ dotnet run --project NosSmoothCustomClient -- --pcap --pid 1234
 dotnet run --project NosSmoothCustomClient -- --help
 ```
 
+## Configuration
+
+`appsettings.json`, a la racine du depot, pilote seuils, waypoints, rotation et slots de
+consommables. Modifie-le et relance : **aucune recompilation**. Les commentaires JSON sont acceptes.
+
+Au demarrage, la ligne `Configuration :` liste ce qui a reellement ete applique — une section mal
+nommee laisserait sinon tous les defauts en place sans rien dire.
+
 ## Transports
 
 | Drapeau | Ce qu'il fait | Injection | Patterns mémoire |

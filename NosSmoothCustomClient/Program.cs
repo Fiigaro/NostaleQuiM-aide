@@ -54,7 +54,7 @@ public static class Program
         });
         builder.Logging.SetMinimumLevel(cli.Verbose ? LogLevel.Debug : LogLevel.Information);
 
-        builder.Services.AddBotEngine(cli.Mode, cli.Trace);
+        builder.Services.AddBotEngine(cli.Mode, cli.Trace, builder.Configuration);
         builder.Services.AddHostedService<ConsoleExitService>();
 
         if (cli.ProcessId is { } pid)
@@ -94,6 +94,7 @@ public static class Program
         var logger = services.GetRequiredService<ILogger<object>>();
         var options = services.GetRequiredService<BotOptions>();
 
+        logger.LogInformation("Configuration : {Summary}", services.GetRequiredService<BotConfigurationSummary>().Description);
         logger.LogInformation("Mode          : {Mode}", mode);
         logger.LogInformation("Loop          : {State}", services.GetRequiredService<BotController>().IsRunning ? "running" : "PAUSED (read-only)");
         logger.LogInformation("Packet handler: {Handler}", services.GetRequiredService<IPacketHandler>().GetType().Name);

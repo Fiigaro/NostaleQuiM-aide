@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NosSmooth.Core.Client;
 using NosSmooth.Core.Extensions;
@@ -33,8 +34,15 @@ public static class BotServiceRegistration
     /// <param name="services">The service collection.</param>
     /// <param name="mode">Which transport to bind.</param>
     /// <param name="trace">Whether to log every raw packet in both directions.</param>
+    /// <param name="configuration">Configuration to read the "Bot" section from, when available.</param>
     /// <returns>The same collection.</returns>
-    public static IServiceCollection AddBotEngine(this IServiceCollection services, RunMode mode, bool trace = false)
+    public static IServiceCollection AddBotEngine
+    (
+        this IServiceCollection services,
+        RunMode mode,
+        bool trace = false,
+        IConfiguration? configuration = null
+    )
     {
         var coreAssembly = typeof(BotServiceRegistration).Assembly;
         var stockPacketsAssembly = typeof(IPacket).Assembly;
@@ -54,7 +62,15 @@ public static class BotServiceRegistration
         services.AddSingleton<PacketTypeRegistrar>();
 
         // 4. Cross-packet state. Responders are resolved per packet, so these must be singletons.
-        services.AddSingleton<BotOptions>();
+        // Read appsettings.json when there is one. Calibration means changing waypoints, cast ids
+        // and slots repeatedly, and needing a rebuild for each of those would make the loop
+        // unusable.
+        var (options, configurationSummary) = configuration is null
+            ? (new BotOptions(), "no configuration provided, using built-in defaults")
+            : BotConfigurationFile.Apply(configuration);
+
+        services.AddSingleton(options);
+        services.AddSingleton(new BotConfigurationSummary(configurationSummary));
         services.AddSingleton<ProtocolStateManager>();
         services.AddSingleton<SkillRotation>();
         services.AddSingleton<BotController>();

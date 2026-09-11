@@ -25,4 +25,8 @@
     <ProjectReference Include="../NosSmoothCustomClient.Core/NosSmoothCustomClient.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="../appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../appsettings.json')" />
+  </ItemGroup>
+
 </Project>

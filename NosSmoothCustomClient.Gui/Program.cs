@@ -97,7 +97,7 @@ public static class Program
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
-        builder.Services.AddBotEngine(cli.Mode, cli.Trace);
+        builder.Services.AddBotEngine(cli.Mode, cli.Trace, builder.Configuration);
 
         if (cli.ProcessId is { } pid)
         {
