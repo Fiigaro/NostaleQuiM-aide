@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NosSmooth.Core.Commands;
 using NosSmooth.Core.Packets;
-using NosSmooth.LocalBinding;
 using NosSmooth.Pcap;
 using NosSmoothCustomClient.Configuration;
 
@@ -76,7 +75,9 @@ public static class PcapClientFactory
         {
             try
             {
-                return Process.GetProcessById(pid);
+                var chosen = Process.GetProcessById(pid);
+                logger.LogInformation("Using process {Name} (pid {Pid}) as requested.", chosen.ProcessName, pid);
+                return chosen;
             }
             catch (ArgumentException)
             {
@@ -84,108 +85,97 @@ public static class PcapClientFactory
             }
         }
 
-        var matches = new List<Process>();
-        var unreadable = 0;
-        var nearMisses = new List<string>();
+        var verdicts = NosTaleProcessScanner.Scan();
+        var clients = verdicts.Where(v => v.IsClient).ToList();
 
-        // Deliberately not NosBrowserManager.GetAllNostaleProcesses(): it maps IsProcessNostaleProcess
-        // over every process with no guard, and that call reads MainModule, which throws for
-        // protected and system processes. One such process anywhere on the machine takes the whole
-        // enumeration down. Inspecting each process in isolation is the same detection, survivably.
-        foreach (var process in Process.GetProcesses())
+        try
         {
-            var matched = false;
-
-            try
+            if (clients.Count == 0)
             {
-                matched = NosBrowserManager.IsProcessNostaleProcess(process);
+                throw new NosTaleProcessNotFoundException(BuildNotFoundMessage(verdicts));
+            }
 
-                if (!matched && LooksLikeAGameClient(process.ProcessName))
+            // More than one match is not a preference to resolve, it is a signal that detection is
+            // unreliable on this machine. Picking silently is how a capture ends up bound to the
+            // wrong process, so ambiguity is fatal and the operator chooses.
+            if (clients.Count > 1)
+            {
+                throw new NosTaleProcessNotFoundException(BuildAmbiguousMessage(clients));
+            }
+
+            var selected = clients[0];
+            logger.LogInformation
+            (
+                "Detected NosTale client {Name} (pid {Pid}) at {Path}.",
+                selected.Process.ProcessName,
+                selected.Process.Id,
+                selected.ExecutablePath
+            );
+
+            return selected.Process;
+        }
+        finally
+        {
+            // Release every handle except the one being returned.
+            foreach (var verdict in verdicts)
+            {
+                if (clients.Count != 1 || !ReferenceEquals(verdict, clients[0]))
                 {
-                    nearMisses.Add($"{process.ProcessName} (pid {process.Id})");
+                    verdict.Process.Dispose();
                 }
             }
-            catch (Win32Exception)
-            {
-                // Protected, elevated, or a different bitness - not inspectable from here.
-                unreadable++;
-            }
-            catch (InvalidOperationException)
-            {
-                // Exited between enumeration and inspection.
-                unreadable++;
-            }
-            catch (NotSupportedException)
-            {
-                unreadable++;
-            }
-
-            if (matched)
-            {
-                matches.Add(process);
-            }
-            else
-            {
-                process.Dispose();
-            }
         }
-
-        if (unreadable > 0)
-        {
-            logger.LogDebug("{Count} process(es) could not be inspected and were skipped.", unreadable);
-        }
-
-        if (matches.Count == 0)
-        {
-            throw new NosTaleProcessNotFoundException(BuildNotFoundMessage(unreadable, nearMisses));
-        }
-
-        if (matches.Count > 1)
-        {
-            logger.LogWarning
-            (
-                "{Count} NosTale clients are running ({Pids}); listening to the first. Use --pid to choose.",
-                matches.Count,
-                string.Join(", ", matches.Select(p => p.Id))
-            );
-        }
-
-        // Keep the one we bind to; release the handles on the rest.
-        foreach (var extra in matches.Skip(1))
-        {
-            extra.Dispose();
-        }
-
-        return matches[0];
     }
 
-    private static string BuildNotFoundMessage(int unreadable, IReadOnlyList<string> nearMisses)
+    private static string BuildNotFoundMessage(IReadOnlyList<ProcessVerdict> verdicts)
     {
-        var message = "No running NosTale client was found. Start the game and log in first, then run again.";
+        var unreadable = verdicts.Count(v => v.Reason.StartsWith("not inspectable", StringComparison.Ordinal));
+        var candidates = verdicts
+            .Where(v => v.ExecutablePath is not null && LooksLikeAGameClient(v.Process.ProcessName))
+            .Select(v => $"  {v.Process.ProcessName} (pid {v.Process.Id})  {v.ExecutablePath}")
+            .Take(10)
+            .ToList();
 
-        if (nearMisses.Count > 0)
+        var message = "No running NosTale client was found. Start the game, log in, then run again."
+                      + Environment.NewLine
+                      + "Detection looks for a NostaleData directory next to the executable.";
+
+        if (candidates.Count > 0)
         {
             message += Environment.NewLine
-                       + "These processes look like game clients but have no NostaleData directory next to them: "
-                       + string.Join(", ", nearMisses.Take(8))
+                       + "These look like game clients but have no NostaleData next to them:"
                        + Environment.NewLine
-                       + "If yours is among them, select it explicitly with --pid <id>.";
+                       + string.Join(Environment.NewLine, candidates)
+                       + Environment.NewLine
+                       + "If yours is listed, select it with --pid <id>.";
         }
 
         if (unreadable > 0)
         {
             message += Environment.NewLine
-                       + $"{unreadable} process(es) could not be inspected (protected, or a different bitness). "
-                       + "If the client is running as administrator, run this from an elevated prompt too, "
-                       + "or pass --pid <id>.";
+                       + $"{unreadable} process(es) could not be inspected. If the client runs elevated, "
+                       + "run this from an elevated prompt too, or pass --pid <id>.";
         }
 
+        message += Environment.NewLine + "Run with --list to see every process and why it was rejected.";
         return message;
     }
 
+    private static string BuildAmbiguousMessage(IReadOnlyList<ProcessVerdict> clients)
+        => $"{clients.Count} processes look like NosTale clients, which means detection is not reliable here. "
+           + "Refusing to guess - choose one with --pid <id>:"
+           + Environment.NewLine
+           + string.Join
+           (
+               Environment.NewLine,
+               clients.Take(10).Select(c => $"  {c.Process.ProcessName} (pid {c.Process.Id})  {c.ExecutablePath}")
+           )
+           + Environment.NewLine
+           + "Run with --list to see the full scan.";
+
     private static bool LooksLikeAGameClient(string processName)
     {
-        // Only used to make the failure message actionable - never to select a process.
+        // Only used to make a failure message actionable - never to select a process.
         string[] hints = { "nos", "tale", "game", "client", "launcher" };
         return hints.Any(h => processName.Contains(h, StringComparison.OrdinalIgnoreCase));
     }

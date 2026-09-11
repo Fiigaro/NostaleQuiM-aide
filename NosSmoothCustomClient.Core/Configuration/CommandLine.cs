@@ -9,7 +9,8 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="Paused">Whether the loop should start without acting.</param>
 /// <param name="Verbose">Whether per-tick detail is logged.</param>
 /// <param name="ProcessId">An explicitly chosen NosTale process, when given.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId)
+/// <param name="ListProcesses">Whether to print the process scan and exit.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses)
 {
     /// <summary>
     /// Parses the arguments.
@@ -34,7 +35,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             mode,
             Has(args, "--paused") || Has(args, "--observe"),
             Has(args, "--verbose"),
-            ReadProcessId(args)
+            ReadProcessId(args),
+            Has(args, "--list")
         );
     }
 
@@ -77,6 +79,10 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
              --pid <id>        The NosTale process to listen to (--pcap). Default: auto-detect.
              --paused          Start without acting; the pipeline still runs and logs.
              --verbose         Log every tick.
+
+           Diagnostics:
+             --list            Print every running process with the reason it was or was not
+                               taken for a NosTale client, then exit.
            """;
 
     private static bool Has(string[] args, string name)

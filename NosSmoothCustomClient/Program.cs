@@ -31,6 +31,12 @@ public static class Program
 
         var cli = CommandLine.Parse(args);
 
+        if (cli.ListProcesses)
+        {
+            Console.WriteLine(ProcessScanReport.Render());
+            return 0;
+        }
+
         if (!cli.IsSupportedHere(out var reason))
         {
             await Console.Error.WriteLineAsync(reason).ConfigureAwait(false);
