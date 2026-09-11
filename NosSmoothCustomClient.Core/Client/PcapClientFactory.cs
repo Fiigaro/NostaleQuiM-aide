@@ -7,6 +7,7 @@ using NosSmooth.Core.Commands;
 using NosSmooth.Core.Packets;
 using NosSmooth.Pcap;
 using NosSmoothCustomClient.Configuration;
+using NosSmoothCustomClient.Diagnostics;
 
 namespace NosSmoothCustomClient.Client;
 
@@ -46,6 +47,9 @@ public static class PcapClientFactory
         var options = services.GetRequiredService<PcapOptions>();
         var logger = services.GetRequiredService<ILogger<PcapNostaleClient>>();
         var process = SelectProcess(options, services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(PcapClientFactory)));
+
+        // Let the diagnostics follow the same target.
+        services.GetRequiredService<CaptureTarget>().Process = process;
 
         logger.LogInformation
         (

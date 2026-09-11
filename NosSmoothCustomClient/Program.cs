@@ -54,7 +54,7 @@ public static class Program
         });
         builder.Logging.SetMinimumLevel(cli.Verbose ? LogLevel.Debug : LogLevel.Information);
 
-        builder.Services.AddBotEngine(cli.Mode);
+        builder.Services.AddBotEngine(cli.Mode, cli.Trace);
         builder.Services.AddHostedService<ConsoleExitService>();
 
         if (cli.ProcessId is { } pid)

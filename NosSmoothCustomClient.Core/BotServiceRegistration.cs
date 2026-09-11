@@ -32,8 +32,9 @@ public static class BotServiceRegistration
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="mode">Which transport to bind.</param>
+    /// <param name="trace">Whether to log every raw packet in both directions.</param>
     /// <returns>The same collection.</returns>
-    public static IServiceCollection AddBotEngine(this IServiceCollection services, RunMode mode)
+    public static IServiceCollection AddBotEngine(this IServiceCollection services, RunMode mode, bool trace = false)
     {
         var coreAssembly = typeof(BotServiceRegistration).Assembly;
         var stockPacketsAssembly = typeof(IPacket).Assembly;
@@ -59,6 +60,7 @@ public static class BotServiceRegistration
         services.AddSingleton<BotController>();
         services.AddSingleton<PacketDispatcher>();
         services.AddSingleton<LogBuffer>();
+        services.AddSingleton<PacketCounter>();
 
         // 5. Responders.
         services.AddPacketResponder<PlayerStatsResponder>();
@@ -67,6 +69,12 @@ public static class BotServiceRegistration
         services.AddPacketResponder<PositionTrackingResponder>();
         services.AddPacketResponder<SkillResponder>();
         services.AddPacketResponder<QuiMStatResponder>();
+
+        // Capture exists to be watched, so tracing is on by default there; elsewhere it is opt-in.
+        if (trace || mode == RunMode.Pcap)
+        {
+            services.AddPacketResponder<PacketTraceResponder>();
+        }
 
         // 6. Transport, and the movement strategy that matches it.
         switch (mode)
@@ -81,6 +89,8 @@ public static class BotServiceRegistration
 
             case RunMode.Pcap:
                 services.AddSingleton<PcapOptions>();
+                services.AddSingleton<CaptureTarget>();
+                services.AddHostedService<CaptureDiagnosticsService>();
                 services.AddOptions<PcapNostaleOptions>();
                 services.AddSingleton<PcapNostaleManager>();
                 services.AddSingleton<ProcessTcpManager>();

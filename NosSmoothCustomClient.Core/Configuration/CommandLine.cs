@@ -10,7 +10,8 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="Verbose">Whether per-tick detail is logged.</param>
 /// <param name="ProcessId">An explicitly chosen NosTale process, when given.</param>
 /// <param name="ListProcesses">Whether to print the process scan and exit.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses)
+/// <param name="Trace">Whether to log every raw packet.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace)
 {
     /// <summary>
     /// Parses the arguments.
@@ -36,7 +37,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             Has(args, "--paused") || Has(args, "--observe"),
             Has(args, "--verbose"),
             ReadProcessId(args),
-            Has(args, "--list")
+            Has(args, "--list"),
+            Has(args, "--trace")
         );
     }
 
@@ -83,6 +85,7 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
            Diagnostics:
              --list            Print every running process with the reason it was or was not
                                taken for a NosTale client, then exit.
+             --trace           Log every raw packet in both directions. Always on with --pcap.
            """;
 
     private static bool Has(string[] args, string name)
