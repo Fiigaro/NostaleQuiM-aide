@@ -67,7 +67,14 @@ public sealed class CaptureDiagnosticsService : BackgroundService
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
             {
-                var connections = await _tcpManager.GetConnectionsAsync(process.Id).ConfigureAwait(false);
+              try
+              {
+                var connections = await ReadConnectionsAsync(process.Id).ConfigureAwait(false);
+
+                if (connections is null)
+                {
+                    continue;
+                }
 
                 if (connections.Count == 0)
                 {
@@ -113,6 +120,11 @@ public sealed class CaptureDiagnosticsService : BackgroundService
                     _counter.FromServer,
                     _counter.FromClient
                 );
+              }
+              catch (Exception ex) when (ex is not OperationCanceledException)
+              {
+                  _logger.LogWarning(ex, "Capture diagnostics tick failed; continuing.");
+              }
             }
         }
         catch (OperationCanceledException)
@@ -121,6 +133,37 @@ public sealed class CaptureDiagnosticsService : BackgroundService
         }
     }
 
+    private async Task<IReadOnlyList<TcpConnection>?> ReadConnectionsAsync(int processId)
+    {
+        try
+        {
+            return await _tcpManager.GetConnectionsAsync(processId).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Observing must never be able to stop what is being observed: the host is configured
+            // to shut down on an unhandled BackgroundService exception, so a failed diagnostic
+            // would take the capture with it. Report and keep going.
+            _logger.LogWarning(ex, "Capture diagnostics could not read the TCP connections; continuing.");
+            return null;
+        }
+    }
+
     private static string Ip(long address)
-        => new System.Net.IPAddress(BitConverter.GetBytes(address)).ToString();
+    {
+        try
+        {
+            // TcpConnection widens an IPv4 address into an Int64; IPAddress only accepts the four
+            // significant bytes, and throws on the eight BitConverter would hand it.
+            return new System.Net.IPAddress(address & 0xFFFFFFFFL).ToString();
+        }
+        catch (ArgumentException)
+        {
+            return address.ToString();
+        }
+    }
 }
