@@ -39,14 +39,21 @@ public sealed class BotOptions
     public BagType PotionBag { get; set; } = BagType.Main;
 
     /// <summary>
-    /// Gets or sets the inventory slot of the HP consumable.
+    /// Gets or sets the inventory slot of the HP consumable, or null when there is none.
     /// </summary>
-    public long HpPotionSlot { get; set; }
+    /// <remarks>
+    /// Null disables HP consumables outright. A slot number that happens to hold something else
+    /// would otherwise be used over and over, which is worse than not healing at all.
+    /// </remarks>
+    public long? HpPotionSlot { get; set; }
 
     /// <summary>
-    /// Gets or sets the inventory slot of the MP consumable.
+    /// Gets or sets the inventory slot of the MP consumable, or null when there is none.
     /// </summary>
-    public long MpPotionSlot { get; set; } = 1;
+    /// <remarks>
+    /// Null disables MP consumables outright. Not every character carries them.
+    /// </remarks>
+    public long? MpPotionSlot { get; set; }
 
     /// <summary>
     /// Gets or sets the minimum delay between two consumable uses of the same kind.

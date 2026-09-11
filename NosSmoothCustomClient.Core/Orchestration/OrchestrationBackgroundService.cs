@@ -132,17 +132,21 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     {
         var acted = false;
 
-        if (_state.IsHpCritical && _state.TryTakeHpPotionGate(_options.PotionCooldown))
+        if (_options.HpPotionSlot is { } hpSlot
+            && _state.IsHpCritical
+            && _state.TryTakeHpPotionGate(_options.PotionCooldown))
         {
             LogPriority(1, "survival: HP at {0:P0}", _state.HpRatio);
-            Log(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, _options.HpPotionSlot), ct));
+            Log(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, hpSlot), ct));
             acted = true;
         }
 
-        if (_state.IsMpCritical && _state.TryTakeMpPotionGate(_options.PotionCooldown))
+        if (_options.MpPotionSlot is { } mpSlot
+            && _state.IsMpCritical
+            && _state.TryTakeMpPotionGate(_options.PotionCooldown))
         {
             LogPriority(1, "survival: MP at {0:P0}", _state.MpRatio);
-            Log(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, _options.MpPotionSlot), ct));
+            Log(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, mpSlot), ct));
             acted = true;
         }
 

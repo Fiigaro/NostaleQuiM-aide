@@ -66,7 +66,9 @@ public sealed class PlayerStatsResponder : IPacketResponder<StatPacket>
 
         var results = new List<Result>(2);
 
-        if (_state.IsHpCritical && _state.TryTakeHpPotionGate(_options.PotionCooldown))
+        if (_options.HpPotionSlot is { } hpSlot
+            && _state.IsHpCritical
+            && _state.TryTakeHpPotionGate(_options.PotionCooldown))
         {
             _logger.LogInformation
             (
@@ -74,13 +76,15 @@ public sealed class PlayerStatsResponder : IPacketResponder<StatPacket>
                 _state.HpRatio,
                 _options.HpPotionThreshold,
                 _options.PotionBag,
-                _options.HpPotionSlot
+                hpSlot
             );
 
-            results.Add(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, _options.HpPotionSlot), ct));
+            results.Add(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, hpSlot), ct));
         }
 
-        if (_state.IsMpCritical && _state.TryTakeMpPotionGate(_options.PotionCooldown))
+        if (_options.MpPotionSlot is { } mpSlot
+            && _state.IsMpCritical
+            && _state.TryTakeMpPotionGate(_options.PotionCooldown))
         {
             _logger.LogInformation
             (
@@ -88,10 +92,10 @@ public sealed class PlayerStatsResponder : IPacketResponder<StatPacket>
                 _state.MpRatio,
                 _options.MpPotionThreshold,
                 _options.PotionBag,
-                _options.MpPotionSlot
+                mpSlot
             );
 
-            results.Add(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, _options.MpPotionSlot), ct));
+            results.Add(await _dispatcher.SendAsync(new UseItemPacket(_options.PotionBag, mpSlot), ct));
         }
 
         return ResultAggregate.Combine(results);
