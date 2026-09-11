@@ -6,6 +6,7 @@ using NosSmooth.Core.Extensions;
 using NosSmooth.Core.Packets;
 using NosSmoothCustomClient.Client;
 using NosSmoothCustomClient.Configuration;
+using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.Packets;
 using NosSmoothCustomClient.State;
 
@@ -35,6 +36,15 @@ public static class Program
         {
             Console.WriteLine(ProcessScanReport.Render());
             return 0;
+        }
+
+        if (cli.TestInput)
+        {
+            using var testLoggers = LoggerFactory.Create(b => b
+                .AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; })
+                .SetMinimumLevel(LogLevel.Information));
+
+            return await InputTest.RunAsync(cli.ProcessId, testLoggers).ConfigureAwait(false);
         }
 
         if (!cli.IsSupportedHere(out var reason))

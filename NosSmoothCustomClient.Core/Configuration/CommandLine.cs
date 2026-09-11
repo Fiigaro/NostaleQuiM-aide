@@ -11,7 +11,8 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="ProcessId">An explicitly chosen NosTale process, when given.</param>
 /// <param name="ListProcesses">Whether to print the process scan and exit.</param>
 /// <param name="Trace">Whether to log every raw packet.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace)
+/// <param name="TestInput">Whether to run the background-input test and exit.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput)
 {
     /// <summary>
     /// Parses the arguments.
@@ -38,7 +39,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             Has(args, "--verbose"),
             ReadProcessId(args),
             Has(args, "--list"),
-            Has(args, "--trace")
+            Has(args, "--trace"),
+            Has(args, "--test-input")
         );
     }
 
@@ -86,6 +88,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
              --list            Print every running process with the reason it was or was not
                                taken for a NosTale client, then exit.
              --trace           Log every raw packet in both directions. Always on with --pcap.
+             --test-input      Send a few keys to the game window with the game in the
+                               background, to find out whether that works at all. Exits after.
            """;
 
     private static bool Has(string[] args, string name)
