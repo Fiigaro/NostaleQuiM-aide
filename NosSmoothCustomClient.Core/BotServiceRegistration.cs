@@ -73,6 +73,7 @@ public static class BotServiceRegistration
         services.AddSingleton(new BotConfigurationSummary(configurationSummary));
         services.AddSingleton<ProtocolStateManager>();
         services.AddSingleton<SkillRotation>();
+        services.AddSingleton<SkillBarMap>();
         services.AddSingleton<BotController>();
         services.AddSingleton<PacketDispatcher>();
         services.AddSingleton<LogBuffer>();
@@ -90,6 +91,12 @@ public static class BotServiceRegistration
         if (trace || mode == RunMode.Pcap)
         {
             services.AddPacketResponder<PacketTraceResponder>();
+        }
+
+        // Capture is the calibration transport, so the deduction runs there by default.
+        if (mode == RunMode.Pcap)
+        {
+            services.AddPacketResponder<CalibrationResponder>();
         }
 
         // 6. Transport, and the movement strategy that matches it.
