@@ -4,3 +4,8 @@ generated/
 *.user
 *.suo
 .vs/
+
+# Captures de session : contiennent des données de compte et de serveur
+capture.log
+*.capture.log
+extrait.txt
