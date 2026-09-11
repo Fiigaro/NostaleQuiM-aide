@@ -62,6 +62,8 @@ public sealed class CaptureDiagnosticsService : BackgroundService
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
         var reportedConnections = false;
+        var firstInboundAt = (DateTimeOffset?)null;
+        var warnedAboutOutbound = false;
 
         try
         {
@@ -120,6 +122,28 @@ public sealed class CaptureDiagnosticsService : BackgroundService
                     _counter.FromServer,
                     _counter.FromClient
                 );
+
+                firstInboundAt ??= DateTimeOffset.UtcNow;
+
+                // Inbound flowing while outbound stays empty is not a fault, it is the signature of
+                // having attached mid-session. The client-to-server direction is encrypted with a
+                // session key the capture can only learn by watching the login handshake, and the
+                // client resets it to zero on every new connection. Said once, with the remedy.
+                if (!warnedAboutOutbound
+                    && _counter.FromClient == 0
+                    && DateTimeOffset.UtcNow - firstInboundAt > TimeSpan.FromSeconds(20))
+                {
+                    warnedAboutOutbound = true;
+                    _logger.LogWarning
+                    (
+                        "{Inbound} frames received but none outbound. Client-to-server traffic is " +
+                        "encrypted with a session key exchanged at login, so it cannot be decoded " +
+                        "when the capture starts mid-session. To see your own packets, sit at the " +
+                        "character selection screen, start the capture, then enter the world - that " +
+                        "also replays c_info, ski, at and inv, which is what the configuration needs.",
+                        _counter.FromServer
+                    );
+                }
               }
               catch (Exception ex) when (ex is not OperationCanceledException)
               {
