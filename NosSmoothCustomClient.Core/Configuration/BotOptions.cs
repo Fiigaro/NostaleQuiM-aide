@@ -124,6 +124,16 @@ public sealed class BotOptions
     public int EngagementRadius { get; set; } = 12;
 
     /// <summary>
+    /// Gets or sets the buffs kept up on the character.
+    /// </summary>
+    public IReadOnlyList<BuffDefinition> Buffs { get; set; } = Array.Empty<BuffDefinition>();
+
+    /// <summary>
+    /// Gets or sets how early a buff may be refreshed when out of combat.
+    /// </summary>
+    public TimeSpan BuffRefreshMargin { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
     /// Gets or sets the grid path the character loops over while no target is alive.
     /// </summary>
     public IReadOnlyList<Waypoint> Waypoints { get; set; } = new[]

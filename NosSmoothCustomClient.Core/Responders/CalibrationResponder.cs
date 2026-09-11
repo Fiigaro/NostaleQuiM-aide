@@ -158,9 +158,10 @@ public sealed class CalibrationResponder :
 
         _logger.LogInformation
         (
-            "CALIBRATION | Buff applied to you: card {CardId}, lasting {Seconds}s (caster level {Level}). " +
+            "CALIBRATION | Buff applied to you: card {CardId}, lasting {Seconds:0.#}s (raw {Raw}, caster level {Level}). " +
             "A buff cast does not always produce su, which is why it shows up here instead.",
             packet.SubPacket?.CardId,
+            (packet.SubPacket?.Time ?? 0) / 10d,
             packet.SubPacket?.Time,
             packet.CasterLevel
         );
@@ -176,8 +177,9 @@ public sealed class CalibrationResponder :
 
         _logger.LogInformation
         (
-            "CALIBRATION | Inventory changed: bag {Bag}, slot {Slot}, VNum {VNum}, now {Amount} left. " +
-            "If you just drank a potion, that is your slot:  \"PotionBag\": \"{Bag}\", \"HpPotionSlot\": {Slot}",
+            "CALIBRATION | You used an item: bag {Bag}, slot {Slot}, VNum {VNum}, {Amount} left. " +
+            "If that was a healing potion:  \"PotionBag\": \"{Bag}\", \"HpPotionSlot\": {Slot}. " +
+            "If it was a buff item, put the same bag and slot in the Buffs section instead.",
             packet.Bag,
             item.Slot,
             item.VNum,

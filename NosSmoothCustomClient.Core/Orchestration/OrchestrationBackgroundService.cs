@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NosSmooth.Core.Extensions;
+using NosSmooth.Packets;
 using NosSmooth.Packets.Client.Battle;
 using NosSmooth.Packets.Client.Inventory;
 using NosSmooth.Packets.Enums.Entities;
@@ -27,6 +28,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private readonly PacketDispatcher _dispatcher;
     private readonly IMovementStrategy _movement;
     private readonly SkillRotation _rotation;
+    private readonly BuffTracker _buffs;
     private readonly BotController _controller;
     private readonly BotOptions _options;
     private readonly ILogger<OrchestrationBackgroundService> _logger;
@@ -40,6 +42,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     /// <param name="dispatcher">The outbound dispatcher.</param>
     /// <param name="movement">The movement strategy.</param>
     /// <param name="rotation">The attack rotation.</param>
+    /// <param name="buffs">The buff tracker.</param>
     /// <param name="controller">The run/pause switch.</param>
     /// <param name="options">The bot options.</param>
     /// <param name="logger">The logger.</param>
@@ -49,6 +52,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         PacketDispatcher dispatcher,
         IMovementStrategy movement,
         SkillRotation rotation,
+        BuffTracker buffs,
         BotController controller,
         BotOptions options,
         ILogger<OrchestrationBackgroundService> logger
@@ -58,6 +62,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         _dispatcher = dispatcher;
         _movement = movement;
         _rotation = rotation;
+        _buffs = buffs;
         _controller = controller;
         _options = options;
         _logger = logger;
@@ -117,6 +122,11 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return;
         }
 
+        if (await TryMaintainBuffsAsync(ct).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (await TryEngageAsync(ct).ConfigureAwait(false))
         {
             return;
@@ -154,7 +164,43 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     }
 
     /// <summary>
-    /// Priority 2 - engagement. All movement halts while a target is alive; attack frames are
+    /// Priority 2 - buffs. Reapplies anything that has lapsed, and tops up what is close to
+    /// lapsing while there is a lull.
+    /// </summary>
+    private async Task<bool> TryMaintainBuffsAsync(CancellationToken ct)
+    {
+        if (_buffs.SelectNext(_state.HasLiveTarget) is not { } due)
+        {
+            return false;
+        }
+
+        var (buff, lapsed) = due;
+
+        IPacket frame;
+        if (buff.IsSkill)
+        {
+            // Self-targeted: the caster is also the target.
+            frame = new UseSkillPacket(buff.CastId!.Value, EntityType.Player, _state.OwnCharacterId, null, null);
+        }
+        else
+        {
+            frame = new UseItemPacket(buff.ItemBag!.Value, buff.ItemSlot!.Value);
+        }
+
+        LogPriority(2, "buffs: {0} {1}", buff.Name, lapsed ? "has lapsed, reapplying" : "is about to lapse, topping up");
+
+        var sent = await _dispatcher.SendAsync(frame, ct);
+        if (sent.IsSuccess)
+        {
+            _buffs.MarkCast(buff);
+        }
+
+        Log(sent);
+        return true;
+    }
+
+    /// <summary>
+    /// Priority 3 - engagement. All movement halts while a target is alive; attack frames are
     /// dispatched at the configured cadence.
     /// </summary>
     private async Task<bool> TryEngageAsync(CancellationToken ct)
@@ -200,7 +246,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
                     _options.MaxStepDistance
                 );
 
-                LogPriority(2, "engagement: closing on #{0}, {1} cells away (range {2})", target.EntityId, range, _options.AttackRange);
+                LogPriority(3, "engagement: closing on #{0}, {1} cells away (range {2})", target.EntityId, range, _options.AttackRange);
                 Log(await _movement.MoveToAsync(approachX, approachY, ct));
                 return true;
             }
@@ -219,7 +265,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
         LogPriority
         (
-            2,
+            3,
             "engagement: #{0} at {1}% HP -> {2} (cast {3})",
             target.EntityId,
             target.HpPercentage,
@@ -249,7 +295,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     }
 
     /// <summary>
-    /// Priority 3 - navigation. Steps towards the active grid waypoint and advances the index once
+    /// Priority 4 - navigation. Steps towards the active grid waypoint and advances the index once
     /// the character is inside the arrival radius.
     /// </summary>
     private async Task NavigateAsync(CancellationToken ct)
@@ -290,7 +336,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
         var (stepX, stepY) = StepToward(position, waypoint, _options.MaxStepDistance);
 
-        LogPriority(3, "navigation: ({0},{1}) -> ({2},{3}), waypoint {4} is {5} cells away", position.X, position.Y, stepX, stepY, waypoint, distance);
+        LogPriority(4, "navigation: ({0},{1}) -> ({2},{3}), waypoint {4} is {5} cells away", position.X, position.Y, stepX, stepY, waypoint, distance);
 
         Log(await _movement.MoveToAsync(stepX, stepY, ct));
     }

@@ -74,6 +74,7 @@ public static class BotServiceRegistration
         services.AddSingleton<ProtocolStateManager>();
         services.AddSingleton<SkillRotation>();
         services.AddSingleton<SkillBarMap>();
+        services.AddSingleton<BuffTracker>();
         services.AddSingleton<BotController>();
         services.AddSingleton<PacketDispatcher>();
         services.AddSingleton<LogBuffer>();
@@ -85,6 +86,7 @@ public static class BotServiceRegistration
         services.AddPacketResponder<TargetHpResponder>();
         services.AddPacketResponder<PositionTrackingResponder>();
         services.AddPacketResponder<SkillResponder>();
+        services.AddPacketResponder<BuffResponder>();
         services.AddPacketResponder<QuiMStatResponder>();
 
         // Capture exists to be watched, so tracing is on by default there; elsewhere it is opt-in.

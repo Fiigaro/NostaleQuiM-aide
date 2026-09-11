@@ -66,6 +66,12 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets the attack rotation, in priority order.</summary>
     public List<SkillEntry>? Skills { get; set; }
 
+    /// <summary>Gets or sets the buffs kept up on the character.</summary>
+    public List<BuffEntry>? Buffs { get; set; }
+
+    /// <summary>Gets or sets how early a buff may be refreshed, in seconds.</summary>
+    public double? BuffRefreshMarginSeconds { get; set; }
+
     /// <summary>One waypoint.</summary>
     public sealed class WaypointEntry
     {
@@ -92,6 +98,34 @@ public sealed class BotConfigurationFile
         public double CooldownSeconds { get; set; }
 
         /// <summary>Gets or sets whether the skill takes part in the rotation.</summary>
+        public bool Enabled { get; set; } = true;
+    }
+
+    /// <summary>One maintained buff.</summary>
+    public sealed class BuffEntry
+    {
+        /// <summary>Gets or sets the display name.</summary>
+        public string? Name { get; set; }
+
+        /// <summary>Gets or sets how long it lasts, in seconds.</summary>
+        public double DurationSeconds { get; set; }
+
+        /// <summary>Gets or sets how soon it can be applied again, in seconds.</summary>
+        public double CooldownSeconds { get; set; }
+
+        /// <summary>Gets or sets the skill's position in the bar, when it is a skill.</summary>
+        public short? CastId { get; set; }
+
+        /// <summary>Gets or sets the bag the item lives in, when it is an item.</summary>
+        public string? ItemBag { get; set; }
+
+        /// <summary>Gets or sets the item's slot, when it is an item.</summary>
+        public long? ItemSlot { get; set; }
+
+        /// <summary>Gets or sets the buff card the server reports, when known.</summary>
+        public int? CardId { get; set; }
+
+        /// <summary>Gets or sets whether the buff is maintained.</summary>
         public bool Enabled { get; set; } = true;
     }
 
@@ -159,6 +193,30 @@ public sealed class BotConfigurationFile
                 .ToArray();
 
             applied.Add($"{file.Skills.Count} skill(s)");
+        }
+
+        Set(file.BuffRefreshMarginSeconds, v => options.BuffRefreshMargin = TimeSpan.FromSeconds(v), "BuffRefreshMargin", applied);
+
+        if (file.Buffs is { Count: > 0 })
+        {
+            options.Buffs = file.Buffs
+                .Select(b => new BuffDefinition
+                (
+                    string.IsNullOrWhiteSpace(b.Name) ? "buff" : b.Name,
+                    TimeSpan.FromSeconds(b.DurationSeconds),
+                    TimeSpan.FromSeconds(b.CooldownSeconds),
+                    b.CastId,
+                    !string.IsNullOrWhiteSpace(b.ItemBag) && Enum.TryParse<BagType>(b.ItemBag, true, out var buffBag)
+                        ? buffBag
+                        : null,
+                    b.ItemSlot,
+                    b.CardId,
+                    b.Enabled
+                ))
+                .ToArray();
+
+            var usable = options.Buffs.Count(b => b.IsUsable);
+            applied.Add($"{file.Buffs.Count} buff(s), {usable} usable");
         }
 
         return applied.Count == 0
