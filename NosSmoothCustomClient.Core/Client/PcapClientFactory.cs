@@ -87,6 +87,7 @@ public static class PcapClientFactory
 
         var verdicts = NosTaleProcessScanner.Scan();
         var clients = verdicts.Where(v => v.IsClient).ToList();
+        ProcessVerdict? kept = null;
 
         try
         {
@@ -95,23 +96,40 @@ public static class PcapClientFactory
                 throw new NosTaleProcessNotFoundException(BuildNotFoundMessage(verdicts));
             }
 
-            // More than one match is not a preference to resolve, it is a signal that detection is
-            // unreliable on this machine. Picking silently is how a capture ends up bound to the
-            // wrong process, so ambiguity is fatal and the operator chooses.
+            // Several matches usually means leftover instances beside the one being played. A
+            // window is the reliable discriminator: exactly one windowed client is an unambiguous
+            // answer, anything else is a genuine choice the operator has to make, because picking
+            // silently is how a capture ends up bound to the wrong process.
+            var selected = clients[0];
+
             if (clients.Count > 1)
             {
-                throw new NosTaleProcessNotFoundException(BuildAmbiguousMessage(clients));
+                var windowed = clients.Where(c => c.HasWindow).ToList();
+
+                if (windowed.Count != 1)
+                {
+                    throw new NosTaleProcessNotFoundException(BuildAmbiguousMessage(clients));
+                }
+
+                selected = windowed[0];
+                logger.LogInformation
+                (
+                    "{Count} clients are running; {Windowed} is the only one with a window, using it.",
+                    clients.Count,
+                    selected.Process.Id
+                );
             }
 
-            var selected = clients[0];
             logger.LogInformation
             (
-                "Detected NosTale client {Name} (pid {Pid}) at {Path}.",
+                "Capturing {Name} (pid {Pid}){Window} at {Path}.",
                 selected.Process.ProcessName,
                 selected.Process.Id,
+                selected.HasWindow ? $" \"{selected.WindowTitle}\"" : " with no window",
                 selected.ExecutablePath
             );
 
+            kept = selected;
             return selected.Process;
         }
         finally
@@ -119,7 +137,7 @@ public static class PcapClientFactory
             // Release every handle except the one being returned.
             foreach (var verdict in verdicts)
             {
-                if (clients.Count != 1 || !ReferenceEquals(verdict, clients[0]))
+                if (!ReferenceEquals(verdict, kept))
                 {
                     verdict.Process.Dispose();
                 }
@@ -162,16 +180,12 @@ public static class PcapClientFactory
     }
 
     private static string BuildAmbiguousMessage(IReadOnlyList<ProcessVerdict> clients)
-        => $"{clients.Count} processes look like NosTale clients, which means detection is not reliable here. "
-           + "Refusing to guess - choose one with --pid <id>:"
+        => $"{clients.Count} NosTale clients are running and none stands out, so the choice is yours. "
+           + "Pick the one you are playing with --pid <id>:"
            + Environment.NewLine
-           + string.Join
-           (
-               Environment.NewLine,
-               clients.Take(10).Select(c => $"  {c.Process.ProcessName} (pid {c.Process.Id})  {c.ExecutablePath}")
-           )
+           + string.Join(Environment.NewLine, clients.Take(10).Select(c => "  " + c.Describe()))
            + Environment.NewLine
-           + "Run with --list to see the full scan.";
+           + "The window title is usually the giveaway; a client with no window is a leftover instance.";
 
     private static bool LooksLikeAGameClient(string processName)
     {

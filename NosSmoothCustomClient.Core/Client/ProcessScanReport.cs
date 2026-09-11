@@ -29,7 +29,8 @@ public static class ProcessScanReport
                 builder.AppendLine("DETECTED AS CLIENT");
                 foreach (var verdict in clients)
                 {
-                    builder.AppendLine($"  {verdict.Process.ProcessName,-28} pid {verdict.Process.Id,-7} {verdict.ExecutablePath}");
+                    builder.AppendLine("  " + verdict.Describe());
+                    builder.AppendLine($"  {string.Empty,-14}              {verdict.ExecutablePath}");
                 }
 
                 builder.AppendLine();

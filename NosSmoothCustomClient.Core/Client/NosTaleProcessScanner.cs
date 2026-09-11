@@ -10,7 +10,29 @@ namespace NosSmoothCustomClient.Client;
 /// <param name="ExecutablePath">Its executable, when readable.</param>
 /// <param name="IsClient">Whether it was taken for a client.</param>
 /// <param name="Reason">Why.</param>
-public sealed record ProcessVerdict(Process Process, string? ExecutablePath, bool IsClient, string Reason);
+/// <param name="WindowTitle">Its main window title, when it has one.</param>
+/// <param name="StartedAt">When it started, when readable.</param>
+public sealed record ProcessVerdict
+(
+    Process Process,
+    string? ExecutablePath,
+    bool IsClient,
+    string Reason,
+    string? WindowTitle = null,
+    DateTime? StartedAt = null
+)
+{
+    /// <summary>Gets a value indicating whether the process owns a visible main window.</summary>
+    public bool HasWindow => !string.IsNullOrWhiteSpace(WindowTitle);
+
+    /// <summary>Gets a one-line description used to tell sibling clients apart.</summary>
+    public string Describe()
+    {
+        var window = HasWindow ? $"\"{WindowTitle}\"" : "(no window)";
+        var started = StartedAt is { } at ? at.ToString("HH:mm:ss") : "?";
+        return $"{Process.ProcessName,-14} pid {Process.Id,-7} started {started}  {window}";
+    }
+}
 
 /// <summary>
 /// Finds the NosTale client among the running processes.
@@ -93,8 +115,36 @@ public static class NosTaleProcessScanner
             process,
             path,
             hasGameData,
-            hasGameData ? "NostaleData found next to the executable" : "no NostaleData directory"
+            hasGameData ? "NostaleData found next to the executable" : "no NostaleData directory",
+            ReadWindowTitle(process),
+            ReadStartTime(process)
         );
+    }
+
+    private static string? ReadWindowTitle(Process process)
+    {
+        try
+        {
+            // The discriminator when several clients of the same build are running: the one being
+            // played owns a window, a leftover or background instance usually does not.
+            return process.MainWindowHandle == IntPtr.Zero ? null : process.MainWindowTitle;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static DateTime? ReadStartTime(Process process)
+    {
+        try
+        {
+            return process.StartTime;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private static bool IsSystemDirectory(string directory)
