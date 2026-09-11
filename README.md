@@ -12,8 +12,28 @@ dotnet run --project NosSmoothCustomClient -- --verbose # + détail par tick
 dotnet run --project NosSmoothCustomClient.Gui          # fenêtre Avalonia
 dotnet run --project NosSmoothCustomClient.Gui -- --selftest  # test headless du moteur + de l'UI
 
-# ajouter --attach pour viser un vrai processus NosTale (Windows x86 uniquement)
+# lire le trafic d'un vrai client, en lecture seule (Npcap + admin requis)
+dotnet run --project NosSmoothCustomClient -- --pcap
+dotnet run --project NosSmoothCustomClient -- --pcap --pid 1234
+
+dotnet run --project NosSmoothCustomClient -- --help
 ```
+
+## Transports
+
+| Drapeau | Ce qu'il fait | Injection | Patterns mémoire |
+|---|---|---|---|
+| *(défaut)* | Trames synthétisées en interne, aucun jeu requis | non | non |
+| `--pcap` | Lit le trafic TCP du vrai client via libpcap | non | **non** |
+| `--attach` | Se lie au processus en mémoire (Windows x86) | oui | oui |
+
+`--pcap` est la voie de calibration : il contourne entièrement le scan mémoire, qui est le point de
+blocage sur un client modifié. Il **démarre toujours en lecture seule**, parce qu'une trame émise par
+capture voyage à côté de celle du client et arrive donc en double côté serveur — ce que l'auteur de
+NosSmooth documente comme détectable. `P` lève la pause si tu acceptes ce coût en connaissance de
+cause.
+
+Prérequis : Npcap sur Windows, et un processus élevé.
 
 Publication en `.exe` autonome (aucune installation requise sur la machine cible) :
 

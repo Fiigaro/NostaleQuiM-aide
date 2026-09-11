@@ -6,6 +6,7 @@ using NosSmooth.LocalBinding.Extensions;
 using NosSmooth.LocalClient.Extensions;
 using NosSmooth.Packets;
 using NosSmooth.PacketSerializer.Extensions;
+using NosSmooth.Pcap;
 using NosSmoothCustomClient.Client;
 using NosSmoothCustomClient.Configuration;
 using NosSmoothCustomClient.Diagnostics;
@@ -68,19 +69,30 @@ public static class BotServiceRegistration
         services.AddPacketResponder<QuiMStatResponder>();
 
         // 6. Transport, and the movement strategy that matches it.
-        if (mode == RunMode.Attach)
+        switch (mode)
         {
-            services.AddNostaleBindings();
-            services.AddLocalClient();
+            case RunMode.Attach:
+                services.AddNostaleBindings();
+                services.AddLocalClient();
 
-            // Attached, walking goes through the game's own routine, so no checksum is synthesised.
-            services.AddSingleton<IMovementStrategy, CommandWalkStrategy>();
-        }
-        else
-        {
-            services.AddSingleton<SimulatedNostaleClient>();
-            services.AddSingleton<INostaleClient>(sp => sp.GetRequiredService<SimulatedNostaleClient>());
-            services.AddSingleton<IMovementStrategy, PacketWalkStrategy>();
+                // Attached, walking goes through the game's own routine, so no checksum is synthesised.
+                services.AddSingleton<IMovementStrategy, CommandWalkStrategy>();
+                break;
+
+            case RunMode.Pcap:
+                services.AddSingleton<PcapOptions>();
+                services.AddOptions<PcapNostaleOptions>();
+                services.AddSingleton<PcapNostaleManager>();
+                services.AddSingleton<ProcessTcpManager>();
+                services.AddSingleton<INostaleClient>(PcapClientFactory.Create);
+                services.AddSingleton<IMovementStrategy, PacketWalkStrategy>();
+                break;
+
+            default:
+                services.AddSingleton<SimulatedNostaleClient>();
+                services.AddSingleton<INostaleClient>(sp => sp.GetRequiredService<SimulatedNostaleClient>());
+                services.AddSingleton<IMovementStrategy, PacketWalkStrategy>();
+                break;
         }
 
         // 7. Workers shared by every front-end.

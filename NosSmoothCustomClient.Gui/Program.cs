@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NosSmoothCustomClient.Configuration;
+using NosSmoothCustomClient.Client;
 using NosSmoothCustomClient.Diagnostics;
 using NosSmoothCustomClient.State;
 
@@ -21,41 +22,42 @@ public static class Program
     [STAThread]
     public static async Task<int> Main(string[] args)
     {
-        var mode = args.Contains("--attach", StringComparer.OrdinalIgnoreCase)
-            ? RunMode.Attach
-            : RunMode.Simulate;
-
-        if (mode == RunMode.Attach && !OperatingSystem.IsWindows())
+        if (args.Contains("--help", StringComparer.OrdinalIgnoreCase))
         {
-            await Console.Error.WriteLineAsync
-            (
-                "--attach binds to a running NosTale process and is Windows x86 only. " +
-                "Run without --attach to drive the in-process simulator."
-            );
+            Console.WriteLine(CommandLine.Usage);
+            return 0;
+        }
 
+        var cli = CommandLine.Parse(args);
+
+        if (!cli.IsSupportedHere(out var reason))
+        {
+            await Console.Error.WriteLineAsync(reason).ConfigureAwait(false);
             return 1;
         }
 
-        using var host = BuildHost(mode, args);
+        using var host = BuildHost(cli, args);
 
         var registration = BotServiceRegistration.RegisterPacketTypes(host.Services);
         if (!registration.IsSuccess)
         {
-            await Console.Error.WriteLineAsync($"Packet type registration failed: {registration.Error?.Message}");
+            await Console.Error.WriteLineAsync($"Packet type registration failed: {registration.Error?.Message}").ConfigureAwait(false);
             return 2;
         }
 
         App.Services = host.Services;
-        App.Mode = mode;
+        App.Mode = cli.Mode;
 
-        // Read-only first contact: the pipeline runs and logs, the loop never acts.
-        if (args.Contains("--paused", StringComparer.OrdinalIgnoreCase)
-            || args.Contains("--observe", StringComparer.OrdinalIgnoreCase))
+        try
         {
-            host.Services.GetRequiredService<BotController>().Pause();
+            ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused);
+            await host.StartAsync().ConfigureAwait(false);
         }
-
-        await host.StartAsync().ConfigureAwait(false);
+        catch (NosTaleProcessNotFoundException ex)
+        {
+            await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+            return 3;
+        }
 
         // A headless pass that lets the engine actually run, then builds the window against the
         // state it produced. Proves the GUI front-end drives the same engine as the console one,
@@ -63,7 +65,7 @@ public static class Program
         if (args.Contains("--selftest", StringComparer.OrdinalIgnoreCase))
         {
             await Task.Delay(TimeSpan.FromSeconds(6)).ConfigureAwait(false);
-            var code = SelfTest.Run(host.Services, mode);
+            var code = SelfTest.Run(host.Services, cli.Mode);
             await host.StopAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
             return code;
         }
@@ -89,14 +91,19 @@ public static class Program
             .UsePlatformDetect()
             .LogToTrace();
 
-    private static IHost BuildHost(RunMode mode, string[] args)
+    private static IHost BuildHost(CommandLine cli, string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
 
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
-        builder.Services.AddBotEngine(mode);
+        builder.Services.AddBotEngine(cli.Mode);
+
+        if (cli.ProcessId is { } pid)
+        {
+            builder.Services.AddSingleton(new PcapOptions { ProcessId = pid });
+        }
 
         // The window reads the same stream the console front-end prints.
         builder.Services.AddSingleton<ILoggerProvider>(sp => new LogBufferProvider(sp.GetRequiredService<LogBuffer>()));

@@ -13,5 +13,11 @@ public enum RunMode
     /// <summary>
     /// Binds to a running NosTale process through NosSmooth.LocalClient. Windows x86 only.
     /// </summary>
-    Attach
+    Attach,
+
+    /// <summary>
+    /// Reads the real client's traffic off the wire with NosSmooth.Pcap - no injection, no
+    /// memory pattern scanning. Read-only by default: see <see cref="PcapOptions"/>.
+    /// </summary>
+    Pcap
 }

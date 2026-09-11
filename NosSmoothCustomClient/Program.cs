@@ -23,18 +23,18 @@ public static class Program
     /// <returns>The process exit code.</returns>
     public static async Task<int> Main(string[] args)
     {
-        var mode = args.Contains("--attach", StringComparer.OrdinalIgnoreCase)
-            ? RunMode.Attach
-            : RunMode.Simulate;
-
-        if (mode == RunMode.Attach && !OperatingSystem.IsWindows())
+        if (args.Contains("--help", StringComparer.OrdinalIgnoreCase) || args.Contains("-h", StringComparer.OrdinalIgnoreCase))
         {
-            await Console.Error.WriteLineAsync
-            (
-                "--attach binds to a running NosTale process through Reloaded.Hooks and is Windows x86 only. " +
-                "Run without --attach to exercise the pipeline against the in-process simulator."
-            );
+            Console.WriteLine(CommandLine.Usage);
+            return 0;
+        }
 
+        var cli = CommandLine.Parse(args);
+
+        if (!cli.IsSupportedHere(out var reason))
+        {
+            await Console.Error.WriteLineAsync(reason).ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("Run without a transport switch to drive the in-process simulator.").ConfigureAwait(false);
             return 1;
         }
 
@@ -46,26 +46,18 @@ public static class Program
             options.SingleLine = true;
             options.TimestampFormat = "HH:mm:ss.fff ";
         });
-        builder.Logging.SetMinimumLevel(args.Contains("--verbose", StringComparer.OrdinalIgnoreCase)
-            ? LogLevel.Debug
-            : LogLevel.Information);
+        builder.Logging.SetMinimumLevel(cli.Verbose ? LogLevel.Debug : LogLevel.Information);
 
-        builder.Services.AddBotEngine(mode);
+        builder.Services.AddBotEngine(cli.Mode);
         builder.Services.AddHostedService<ConsoleExitService>();
+
+        if (cli.ProcessId is { } pid)
+        {
+            builder.Services.AddSingleton(new PcapOptions { ProcessId = pid });
+        }
 
         var host = builder.Build();
 
-        // Read-only first contact: the packet pipeline runs and logs, but the loop never acts.
-        // This is how you calibrate against a real client without the bot touching anything.
-        if (args.Contains("--paused", StringComparer.OrdinalIgnoreCase)
-            || args.Contains("--observe", StringComparer.OrdinalIgnoreCase))
-        {
-            host.Services.GetRequiredService<BotController>().Pause();
-        }
-
-        // The type repository is populated after the container exists, because AddPacketTypes and
-        // AddDefaultPackets extend the repository itself rather than IServiceCollection. Without
-        // this step every packet deserialises to UnresolvedPacket.
         var registration = BotServiceRegistration.RegisterPacketTypes(host.Services);
         if (!registration.IsSuccess)
         {
@@ -75,7 +67,19 @@ public static class Program
             return 2;
         }
 
-        LogStartup(host.Services, mode);
+        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused);
+
+        try
+        {
+            LogStartup(host.Services, cli.Mode);
+        }
+        catch (NosTaleProcessNotFoundException ex)
+        {
+            // Resolving the client is what triggers process discovery; report it as the actionable
+            // setup problem it is rather than as an unhandled dependency injection failure.
+            await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+            return 3;
+        }
 
         await host.RunAsync().ConfigureAwait(false);
         return 0;
@@ -87,7 +91,7 @@ public static class Program
         var options = services.GetRequiredService<BotOptions>();
 
         logger.LogInformation("Mode          : {Mode}", mode);
-        logger.LogInformation("Boucle        : {State}", services.GetRequiredService<BotController>().IsRunning ? "active" : "EN PAUSE (lecture seule)");
+        logger.LogInformation("Loop          : {State}", services.GetRequiredService<BotController>().IsRunning ? "running" : "PAUSED (read-only)");
         logger.LogInformation("Packet handler: {Handler}", services.GetRequiredService<IPacketHandler>().GetType().Name);
         logger.LogInformation("Client        : {Client}", services.GetRequiredService<INostaleClient>().GetType().Name);
         logger.LogInformation("Movement      : {Movement}", services.GetRequiredService<IMovementStrategy>().GetType().Name);

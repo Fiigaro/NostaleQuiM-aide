@@ -17,6 +17,7 @@
     <PackageReference Include="NosSmooth.PacketSerializer" Version="2.2.7" />
     <PackageReference Include="NosSmooth.PacketSerializersGenerator" Version="1.1.1" PrivateAssets="all" />
     <PackageReference Include="NosSmooth.LocalClient" Version="2.2.0" />
+    <PackageReference Include="NosSmooth.Pcap" Version="1.0.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
   </ItemGroup>
 
