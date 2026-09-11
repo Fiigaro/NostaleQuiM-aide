@@ -69,17 +69,15 @@ public static class Program
 
         ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused);
 
-        try
+        // Bind the transport before the loop starts: this is the step that reaches outside the
+        // process, so its failures belong here as messages, not later as stack traces.
+        if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
         {
-            LogStartup(host.Services, cli.Mode);
-        }
-        catch (NosTaleProcessNotFoundException ex)
-        {
-            // Resolving the client is what triggers process discovery; report it as the actionable
-            // setup problem it is rather than as an unhandled dependency injection failure.
-            await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+            await Console.Error.WriteLineAsync(transportError).ConfigureAwait(false);
             return 3;
         }
+
+        LogStartup(host.Services, cli.Mode);
 
         await host.RunAsync().ConfigureAwait(false);
         return 0;

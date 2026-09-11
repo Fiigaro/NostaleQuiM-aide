@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -83,29 +84,109 @@ public static class PcapClientFactory
             }
         }
 
-        // Matches on the presence of a NostaleData directory next to the executable, which is how
-        // NosSmooth itself identifies a client.
-        var candidates = NosBrowserManager.GetAllNostaleProcesses().ToList();
+        var matches = new List<Process>();
+        var unreadable = 0;
+        var nearMisses = new List<string>();
 
-        if (candidates.Count == 0)
+        // Deliberately not NosBrowserManager.GetAllNostaleProcesses(): it maps IsProcessNostaleProcess
+        // over every process with no guard, and that call reads MainModule, which throws for
+        // protected and system processes. One such process anywhere on the machine takes the whole
+        // enumeration down. Inspecting each process in isolation is the same detection, survivably.
+        foreach (var process in Process.GetProcesses())
         {
-            throw new NosTaleProcessNotFoundException
-            (
-                "No running NosTale client was found. Start the game and log in first, then run again. " +
-                "If the client is running, pass its pid explicitly with --pid <id>."
-            );
+            var matched = false;
+
+            try
+            {
+                matched = NosBrowserManager.IsProcessNostaleProcess(process);
+
+                if (!matched && LooksLikeAGameClient(process.ProcessName))
+                {
+                    nearMisses.Add($"{process.ProcessName} (pid {process.Id})");
+                }
+            }
+            catch (Win32Exception)
+            {
+                // Protected, elevated, or a different bitness - not inspectable from here.
+                unreadable++;
+            }
+            catch (InvalidOperationException)
+            {
+                // Exited between enumeration and inspection.
+                unreadable++;
+            }
+            catch (NotSupportedException)
+            {
+                unreadable++;
+            }
+
+            if (matched)
+            {
+                matches.Add(process);
+            }
+            else
+            {
+                process.Dispose();
+            }
         }
 
-        if (candidates.Count > 1)
+        if (unreadable > 0)
+        {
+            logger.LogDebug("{Count} process(es) could not be inspected and were skipped.", unreadable);
+        }
+
+        if (matches.Count == 0)
+        {
+            throw new NosTaleProcessNotFoundException(BuildNotFoundMessage(unreadable, nearMisses));
+        }
+
+        if (matches.Count > 1)
         {
             logger.LogWarning
             (
                 "{Count} NosTale clients are running ({Pids}); listening to the first. Use --pid to choose.",
-                candidates.Count,
-                string.Join(", ", candidates.Select(p => p.Id))
+                matches.Count,
+                string.Join(", ", matches.Select(p => p.Id))
             );
         }
 
-        return candidates[0];
+        // Keep the one we bind to; release the handles on the rest.
+        foreach (var extra in matches.Skip(1))
+        {
+            extra.Dispose();
+        }
+
+        return matches[0];
+    }
+
+    private static string BuildNotFoundMessage(int unreadable, IReadOnlyList<string> nearMisses)
+    {
+        var message = "No running NosTale client was found. Start the game and log in first, then run again.";
+
+        if (nearMisses.Count > 0)
+        {
+            message += Environment.NewLine
+                       + "These processes look like game clients but have no NostaleData directory next to them: "
+                       + string.Join(", ", nearMisses.Take(8))
+                       + Environment.NewLine
+                       + "If yours is among them, select it explicitly with --pid <id>.";
+        }
+
+        if (unreadable > 0)
+        {
+            message += Environment.NewLine
+                       + $"{unreadable} process(es) could not be inspected (protected, or a different bitness). "
+                       + "If the client is running as administrator, run this from an elevated prompt too, "
+                       + "or pass --pid <id>.";
+        }
+
+        return message;
+    }
+
+    private static bool LooksLikeAGameClient(string processName)
+    {
+        // Only used to make the failure message actionable - never to select a process.
+        string[] hints = { "nos", "tale", "game", "client", "launcher" };
+        return hints.Any(h => processName.Contains(h, StringComparison.OrdinalIgnoreCase));
     }
 }

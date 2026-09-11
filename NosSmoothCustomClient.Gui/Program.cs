@@ -48,16 +48,15 @@ public static class Program
         App.Services = host.Services;
         App.Mode = cli.Mode;
 
-        try
+        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused);
+
+        if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
         {
-            ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused);
-            await host.StartAsync().ConfigureAwait(false);
-        }
-        catch (NosTaleProcessNotFoundException ex)
-        {
-            await Console.Error.WriteLineAsync(ex.Message).ConfigureAwait(false);
+            await Console.Error.WriteLineAsync(transportError).ConfigureAwait(false);
             return 3;
         }
+
+        await host.StartAsync().ConfigureAwait(false);
 
         // A headless pass that lets the engine actually run, then builds the window against the
         // state it produced. Proves the GUI front-end drives the same engine as the console one,
