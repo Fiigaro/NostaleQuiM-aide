@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NosSmoothCustomClient.Configuration;
 using NosSmoothCustomClient.Diagnostics;
+using NosSmoothCustomClient.State;
 
 namespace NosSmoothCustomClient.Gui;
 
@@ -46,6 +47,13 @@ public static class Program
 
         App.Services = host.Services;
         App.Mode = mode;
+
+        // Read-only first contact: the pipeline runs and logs, the loop never acts.
+        if (args.Contains("--paused", StringComparer.OrdinalIgnoreCase)
+            || args.Contains("--observe", StringComparer.OrdinalIgnoreCase))
+        {
+            host.Services.GetRequiredService<BotController>().Pause();
+        }
 
         await host.StartAsync().ConfigureAwait(false);
 

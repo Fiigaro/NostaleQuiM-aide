@@ -7,6 +7,7 @@ using NosSmooth.Core.Packets;
 using NosSmoothCustomClient.Client;
 using NosSmoothCustomClient.Configuration;
 using NosSmoothCustomClient.Packets;
+using NosSmoothCustomClient.State;
 
 namespace NosSmoothCustomClient;
 
@@ -54,6 +55,14 @@ public static class Program
 
         var host = builder.Build();
 
+        // Read-only first contact: the packet pipeline runs and logs, but the loop never acts.
+        // This is how you calibrate against a real client without the bot touching anything.
+        if (args.Contains("--paused", StringComparer.OrdinalIgnoreCase)
+            || args.Contains("--observe", StringComparer.OrdinalIgnoreCase))
+        {
+            host.Services.GetRequiredService<BotController>().Pause();
+        }
+
         // The type repository is populated after the container exists, because AddPacketTypes and
         // AddDefaultPackets extend the repository itself rather than IServiceCollection. Without
         // this step every packet deserialises to UnresolvedPacket.
@@ -78,6 +87,7 @@ public static class Program
         var options = services.GetRequiredService<BotOptions>();
 
         logger.LogInformation("Mode          : {Mode}", mode);
+        logger.LogInformation("Boucle        : {State}", services.GetRequiredService<BotController>().IsRunning ? "active" : "EN PAUSE (lecture seule)");
         logger.LogInformation("Packet handler: {Handler}", services.GetRequiredService<IPacketHandler>().GetType().Name);
         logger.LogInformation("Client        : {Client}", services.GetRequiredService<INostaleClient>().GetType().Name);
         logger.LogInformation("Movement      : {Movement}", services.GetRequiredService<IMovementStrategy>().GetType().Name);
