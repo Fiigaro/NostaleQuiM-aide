@@ -58,8 +58,8 @@ public static class InputTest
 
         logger.LogWarning
         (
-            "In 5 seconds this will send: 1, then 2, then space. " +
-            "Click on ANOTHER window now and leave NosTale in the background - that is the whole point of the test."
+            "In 5 seconds this runs two tests. Click on ANOTHER window now and leave NosTale in " +
+            "the background - that is the whole point."
         );
 
         for (var remaining = 5; remaining > 0; remaining--)
@@ -68,32 +68,53 @@ public static class InputTest
             await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
         }
 
-        var sequence = new[] { "1", "2", "space" };
-        var accepted = 0;
+        GameKey.TryParse("1", out var one);
+        GameKey.TryParse("2", out var two);
 
-        foreach (var name in sequence)
+        // Two ways of saying the same thing. Which one a given client listens to is settled by
+        // trying both once, rather than by another round trip of guessing.
+        logger.LogWarning("TEST A - key press messages (WM_KEYDOWN/WM_KEYUP). Sending \"1\" three times.");
+        var keyAccepted = 0;
+        for (var i = 0; i < 3; i++)
         {
-            if (!GameKey.TryParse(name, out var key))
-            {
-                continue;
-            }
-
-            var ok = input.PressKey(key);
-            accepted += ok ? 1 : 0;
-            logger.LogInformation("Sent {Key} -> {Result}", key.Label, ok ? "accepted by the queue" : "REFUSED");
-
-            await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            keyAccepted += input.PressKey(one) ? 1 : 0;
+            await Task.Delay(TimeSpan.FromMilliseconds(700)).ConfigureAwait(false);
         }
 
-        logger.LogInformation("{Accepted}/{Total} messages were accepted for delivery.", accepted, sequence.Length);
-        logger.LogWarning
+        await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+
+        logger.LogWarning("TEST B - character messages (WM_CHAR). Sending \"2\" three times.");
+        var charAccepted = 0;
+        for (var i = 0; i < 3; i++)
+        {
+            charAccepted += input.SendCharacter(two) ? 1 : 0;
+            await Task.Delay(TimeSpan.FromMilliseconds(700)).ConfigureAwait(false);
+        }
+
+        await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+
+        logger.LogWarning("TEST C - space, which should select and attack the nearest monster.");
+        var spaceAccepted = input.PressKey(GameKey.Space) ? 1 : 0;
+
+        logger.LogInformation
         (
-            "Now look at the game. Accepted only means Windows queued the message - " +
-            "whether the client acted on it is what you have to judge on screen. " +
-            "If your character cast two skills and attacked, background input works and the bot can run while you do something else."
+            "Queued: test A {KeyAccepted}/3, test B {CharAccepted}/3, test C {SpaceAccepted}/1.",
+            keyAccepted,
+            charAccepted,
+            spaceAccepted
         );
 
-        return accepted == sequence.Length ? 0 : 5;
+        logger.LogWarning
+        (
+            "Now tell me what the character actually did. Queued only means Windows accepted the " +
+            "message; acting on it is the client's decision, and that is what decides how the bot " +
+            "is built. Did skill 1 fire (A), skill 2 (B), both, or neither?"
+        );
+
+        var accepted = keyAccepted + charAccepted + spaceAccepted;
+        var total = 7;
+
+        return accepted == total ? 0 : 5;
     }
 
     private static System.Diagnostics.Process SelectProcess(int? processId, ILogger logger)

@@ -26,7 +26,19 @@ public sealed class WindowsGameInput : IGameInput
     private const uint WmLButtonUp = 0x0202;
     private const uint WmMouseMove = 0x0200;
     private const int MkLButton = 0x0001;
+    private const uint WmChar = 0x0102;
     private const uint MapvkVkToVsc = 0;
+
+    /// <summary>
+    /// The Delphi form class of the NosTale client window.
+    /// </summary>
+    /// <remarks>
+    /// Targeting the class rather than Process.MainWindowHandle matters: a client can own several
+    /// windows and the "main" one is not necessarily the one that handles gameplay input. Existing
+    /// tooling for this game addresses this class by name, which is a strong signal it is the right
+    /// one.
+    /// </remarks>
+    public const string GameWindowClass = "TNosTaleMainF";
 
     private readonly CaptureTarget _target;
     private readonly ILogger<WindowsGameInput> _logger;
@@ -68,11 +80,12 @@ public sealed class WindowsGameInput : IGameInput
         try
         {
             process.Refresh();
-            var handle = process.MainWindowHandle;
+
+            var (handle, className) = FindGameWindow(process.Id, process.MainWindowHandle);
 
             if (handle == IntPtr.Zero)
             {
-                error = $"Process {process.ProcessName} (pid {process.Id}) has no window. "
+                error = $"Process {process.ProcessName} (pid {process.Id}) exposes no usable window. "
                         + "Pick the client you are actually playing with --pid.";
 
                 return false;
@@ -83,11 +96,21 @@ public sealed class WindowsGameInput : IGameInput
 
             _logger.LogInformation
             (
-                "Input bound to \"{Title}\" (pid {Pid}, window 0x{Handle:X}).",
-                process.MainWindowTitle,
-                process.Id,
-                handle.ToInt64()
+                "Input bound to window 0x{Handle:X} (class \"{Class}\") of pid {Pid}.",
+                handle.ToInt64(),
+                className,
+                process.Id
             );
+
+            if (!string.Equals(className, GameWindowClass, StringComparison.Ordinal))
+            {
+                _logger.LogWarning
+                (
+                    "That is not the expected \"{Expected}\" class. Input may not reach the game; "
+                    + "if nothing happens, this is the first thing to look at.",
+                    GameWindowClass
+                );
+            }
 
             return true;
         }
@@ -148,6 +171,79 @@ public sealed class WindowsGameInput : IGameInput
     }
 
     /// <summary>
+    /// Sends a key as a character message rather than a key press.
+    /// </summary>
+    /// <param name="key">The key.</param>
+    /// <returns>True when the message was accepted for delivery.</returns>
+    /// <remarks>
+    /// A second way of saying the same thing. Some clients act on WM_KEYDOWN, others only on
+    /// WM_CHAR; which one this build listens to is settled by trying, not by reasoning.
+    /// </remarks>
+    public bool SendCharacter(GameKey key)
+    {
+        if (_window == IntPtr.Zero || key.Label.Length != 1)
+        {
+            return false;
+        }
+
+        return PostMessage(_window, WmChar, key.Label[0], (IntPtr)1);
+    }
+
+    /// <summary>
+    /// Finds the window that handles gameplay input.
+    /// </summary>
+    /// <param name="processId">The client's process id.</param>
+    /// <param name="fallback">The handle to use when no better candidate is found.</param>
+    /// <returns>The chosen handle and its class name.</returns>
+    private static (IntPtr Handle, string ClassName) FindGameWindow(int processId, IntPtr fallback)
+    {
+        var byClass = IntPtr.Zero;
+        var nearMiss = IntPtr.Zero;
+        var nearMissClass = string.Empty;
+
+        EnumWindows((handle, _) =>
+        {
+            GetWindowThreadProcessId(handle, out var owner);
+            if (owner != processId)
+            {
+                return true;
+            }
+
+            var name = ReadClassName(handle);
+
+            if (string.Equals(name, GameWindowClass, StringComparison.Ordinal))
+            {
+                byClass = handle;
+                return false;
+            }
+
+            if (nearMiss == IntPtr.Zero && name.Contains("NosTale", StringComparison.OrdinalIgnoreCase))
+            {
+                nearMiss = handle;
+                nearMissClass = name;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        if (byClass != IntPtr.Zero)
+        {
+            return (byClass, GameWindowClass);
+        }
+
+        return nearMiss != IntPtr.Zero
+            ? (nearMiss, nearMissClass)
+            : (fallback, fallback == IntPtr.Zero ? string.Empty : ReadClassName(fallback));
+    }
+
+    private static string ReadClassName(IntPtr handle)
+    {
+        var buffer = new System.Text.StringBuilder(256);
+        var length = GetClassName(handle, buffer, buffer.Capacity);
+        return length > 0 ? buffer.ToString(0, length) : string.Empty;
+    }
+
+    /// <summary>
     /// Reads the game window's size, for reporting and for sanity-checking click coordinates.
     /// </summary>
     /// <param name="width">The client width.</param>
@@ -174,6 +270,18 @@ public sealed class WindowsGameInput : IGameInput
 
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKey(uint code, uint mapType);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int processId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder buffer, int maxCount);
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
