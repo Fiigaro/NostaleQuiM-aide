@@ -14,7 +14,8 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="TestInput">Whether to run the background-input test and exit.</param>
 /// <param name="Play">Whether the bot may actually press keys in the game.</param>
 /// <param name="TestKey">A single key to test, instead of the full sequence.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey)
+/// <param name="RecordWaypoints">Whether to record a patrol route instead of running the bot.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey, bool RecordWaypoints)
 {
     /// <summary>
     /// Parses the arguments.
@@ -29,8 +30,9 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
         {
             mode = RunMode.Attach;
         }
-        else if (Has(args, "--pcap") || Has(args, "--listen"))
+        else if (Has(args, "--pcap") || Has(args, "--listen") || Has(args, "--record-waypoints"))
         {
+            // Recording needs the character's position, which only the capture provides.
             mode = RunMode.Pcap;
         }
 
@@ -44,7 +46,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             Has(args, "--trace"),
             Has(args, "--test-input"),
             Has(args, "--play"),
-            ReadValue(args, "--key")
+            ReadValue(args, "--key"),
+            Has(args, "--record-waypoints")
         );
     }
 
@@ -94,6 +97,9 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
              --list            Print every running process with the reason it was or was not
                                taken for a NosTale client, then exit.
              --trace           Log every raw packet in both directions. Always on with --pcap.
+             --record-waypoints
+                               Record a patrol route: stand on a spot, point at it on the
+                               minimap, press F9. F10 saves. Implies --pcap.
              --test-input      Send a few keys to the game window with the game in the
                                background, to find out whether that works at all. Exits after.
              --key <k>         With --test-input, send only this key (e.g. space, 1, r),

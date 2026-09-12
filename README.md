@@ -27,6 +27,31 @@ consommables. Modifie-le et relance : **aucune recompilation**. Les commentaires
 Au demarrage, la ligne `Configuration :` liste ce qui a reellement ete applique — une section mal
 nommee laisserait sinon tous les defauts en place sans rien dire.
 
+## Le bot au clavier
+
+Sur un serveur dont le trafic client -> serveur ne peut pas etre forge, le bot **joue comme un
+humain** : touches de la barre rapide et clics sur la minimap. La lecture continue de venir de la
+capture, ce qui le distingue d'une macro aveugle - il ne presse la potion que si les PV sont
+reellement bas, et ne change de spot que s'il n'y a vraiment plus rien a taper.
+
+```bash
+# 1. Verifier que les touches atteignent le client en arriere-plan
+dotnet run --project NosSmoothCustomClient -- --test-input --key space
+
+# 2. Enregistrer la route : sur place, viser la minimap, F9. F10 pour sauver.
+dotnet run --project NosSmoothCustomClient -- --record-waypoints
+
+# 3. Observer les decisions sans rien envoyer
+dotnet run --project NosSmoothCustomClient.Gui -- --pcap
+
+# 4. Laisser le bot jouer (demarre en pause, P pour lancer)
+dotnet run --project NosSmoothCustomClient.Gui -- --pcap --play
+```
+
+Les reglages vivent dans `appsettings.json`, et la fenetre permet de cocher/decocher chaque sort et
+chaque buff et d'ajuster leurs temps a chaud. Le bouton d'enregistrement ecrit
+`appsettings.local.json`, relu au lancement suivant.
+
 ## Transports
 
 | Drapeau | Ce qu'il fait | Injection | Patterns mémoire |

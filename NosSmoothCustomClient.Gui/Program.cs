@@ -49,7 +49,7 @@ public static class Program
         App.Services = host.Services;
         App.Mode = cli.Mode;
 
-        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused, cli.Play);
+        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused, cli.Play, cli.RecordWaypoints);
 
         if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
         {
@@ -101,7 +101,7 @@ public static class Program
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
-        builder.Services.AddBotEngine(cli.Mode, cli.Trace, builder.Configuration, cli.Play);
+        builder.Services.AddBotEngine(cli.Mode, cli.Trace, builder.Configuration, cli.Play, cli.RecordWaypoints);
 
         if (cli.ProcessId is { } pid)
         {

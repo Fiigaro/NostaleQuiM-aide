@@ -38,6 +38,7 @@ public static class BotServiceRegistration
     /// <param name="trace">Whether to log every raw packet in both directions.</param>
     /// <param name="configuration">Configuration to read the "Bot" section from, when available.</param>
     /// <param name="play">Whether actions actually reach the game, rather than only being logged.</param>
+    /// <param name="recordWaypoints">Whether to record a patrol route instead of acting.</param>
     /// <returns>The same collection.</returns>
     public static IServiceCollection AddBotEngine
     (
@@ -45,7 +46,8 @@ public static class BotServiceRegistration
         RunMode mode,
         bool trace = false,
         IConfiguration? configuration = null,
-        bool play = false
+        bool play = false,
+        bool recordWaypoints = false
     )
     {
         var coreAssembly = typeof(BotServiceRegistration).Assembly;
@@ -138,6 +140,12 @@ public static class BotServiceRegistration
                 }
 
                 services.AddSingleton<IBotActuator, InputActuator>();
+
+                if (recordWaypoints)
+                {
+                    services.AddHostedService<WaypointRecorder>();
+                }
+
                 break;
 
             default:

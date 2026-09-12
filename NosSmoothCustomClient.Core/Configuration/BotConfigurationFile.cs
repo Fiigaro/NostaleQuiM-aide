@@ -83,6 +83,12 @@ public sealed class BotConfigurationFile
 
         /// <summary>Gets or sets the Y coordinate.</summary>
         public int Y { get; set; }
+
+        /// <summary>Gets or sets the X offset of the matching minimap point in the game window.</summary>
+        public int? ClickX { get; set; }
+
+        /// <summary>Gets or sets the Y offset of the matching minimap point.</summary>
+        public int? ClickY { get; set; }
     }
 
     /// <summary>One rotation entry.</summary>
@@ -184,8 +190,8 @@ public sealed class BotConfigurationFile
 
         if (file.Waypoints is { Count: > 0 })
         {
-            options.Waypoints = file.Waypoints.Select(w => new Waypoint(w.X, w.Y)).ToList();
-            applied.Add($"{file.Waypoints.Count} waypoint(s)");
+            options.Waypoints = file.Waypoints.Select(w => new Waypoint(w.X, w.Y, w.ClickX, w.ClickY)).ToList();
+            applied.Add($"{file.Waypoints.Count} waypoint(s), {options.Waypoints.Count(w => w.IsClickable)} clickable");
         }
 
         if (file.Skills is { Count: > 0 })

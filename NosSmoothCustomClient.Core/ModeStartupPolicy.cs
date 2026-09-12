@@ -17,10 +17,17 @@ public static class ModeStartupPolicy
     /// <param name="mode">The transport.</param>
     /// <param name="explicitlyPaused">Whether the user asked for a paused start.</param>
     /// <param name="play">Whether actions actually reach the game.</param>
-    public static void Apply(IServiceProvider services, RunMode mode, bool explicitlyPaused, bool play = false)
+    public static void Apply(IServiceProvider services, RunMode mode, bool explicitlyPaused, bool play = false, bool recordWaypoints = false)
     {
         var controller = services.GetRequiredService<BotController>();
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(ModeStartupPolicy));
+
+        if (recordWaypoints)
+        {
+            // The loop must not wander off while the route is being walked by hand.
+            controller.Pause();
+            return;
+        }
 
         if (mode == RunMode.Pcap && play)
         {

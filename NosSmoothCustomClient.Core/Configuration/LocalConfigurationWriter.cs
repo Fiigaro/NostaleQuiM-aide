@@ -55,6 +55,13 @@ public static class LocalConfigurationWriter
                         CooldownSeconds = Math.Round(b.EffectiveCooldown.TotalSeconds, 1),
                         b.CardId,
                         b.Enabled
+                    }),
+                    Waypoints = options.Waypoints.Select(w => new
+                    {
+                        w.X,
+                        w.Y,
+                        w.ClickX,
+                        w.ClickY
                     })
                 }
             };
