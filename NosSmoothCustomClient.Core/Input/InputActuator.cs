@@ -18,6 +18,9 @@ public sealed class InputActuator : IBotActuator
     private readonly BotOptions _options;
     private readonly ILogger<InputActuator> _logger;
 
+    private readonly SemaphoreSlim _keyboard = new(1, 1);
+    private DateTimeOffset _nextPressAt = DateTimeOffset.MinValue;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="InputActuator"/> class.
     /// </summary>
@@ -76,35 +79,36 @@ public sealed class InputActuator : IBotActuator
 
     /// <inheritdoc />
     public Task<bool> UseHpPotionAsync(CancellationToken ct = default)
-        => Task.FromResult(Press(_options.Keys.HpPotion, "HP potion"));
+        => PressAsync(_options.Keys.HpPotion, "HP potion", ct);
 
     /// <inheritdoc />
     public Task<bool> UseMpPotionAsync(CancellationToken ct = default)
-        => Task.FromResult(Press(_options.Keys.MpPotion, "MP potion"));
+        => PressAsync(_options.Keys.MpPotion, "MP potion", ct);
 
     /// <inheritdoc />
     public Task<bool> ApplyBuffAsync(BuffDefinition buff, CancellationToken ct = default)
-        => Task.FromResult(Press(buff.Key, $"buff {buff.Name}"));
+        => PressAsync(buff.Key, $"buff {buff.Name}", ct);
 
     /// <inheritdoc />
     public Task<bool> TargetNearestAsync(CancellationToken ct = default)
-        => Task.FromResult(Press(_options.Keys.TargetAndAttack, "target and attack"));
+        => PressAsync(_options.Keys.TargetAndAttack, "target and attack", ct);
 
     /// <inheritdoc />
     public Task<bool> CastSkillAsync(SkillDefinition? skill, long targetEntityId, CancellationToken ct = default)
     {
-        // The basic attack needs no key of its own: the target key already attacks.
+        // The basic attack needs no key of its own: the target key already attacks, and the client
+        // keeps swinging until told otherwise.
         if (skill is null)
         {
-            return Task.FromResult(Press(_options.Keys.TargetAndAttack, "basic attack"));
+            return PressAsync(_options.Keys.TargetAndAttack, "basic attack", ct);
         }
 
-        return Task.FromResult(Press(skill.Key, $"skill {skill.Name}"));
+        return PressAsync(skill.Key, $"skill {skill.Name}", ct);
     }
 
     /// <inheritdoc />
     public Task<bool> LootAsync(CancellationToken ct = default)
-        => Task.FromResult(Press(_options.Keys.Loot, "loot"));
+        => PressAsync(_options.Keys.Loot, "loot", ct);
 
     /// <inheritdoc />
     public Task<bool> GoToWaypointAsync(int index, CancellationToken ct = default)
@@ -124,7 +128,14 @@ public sealed class InputActuator : IBotActuator
         return Task.FromResult(_input.ClickAt(x, y));
     }
 
-    private bool Press(string? binding, string what)
+    /// <summary>
+    /// Presses a key, never faster than the configured gap.
+    /// </summary>
+    /// <remarks>
+    /// The pacing lives here rather than in the decision loop on purpose: how fast a client can be
+    /// typed at is a property of the client, not of what the bot decided to do.
+    /// </remarks>
+    private async Task<bool> PressAsync(string? binding, string what, CancellationToken ct)
     {
         if (!GameKey.TryParse(binding, out var key))
         {
@@ -132,8 +143,26 @@ public sealed class InputActuator : IBotActuator
             return false;
         }
 
-        _logger.LogDebug("Pressing {Key} for {What}.", key.Label, what);
-        return _input.PressKey(key);
+        await _keyboard.WaitAsync(ct).ConfigureAwait(false);
+
+        try
+        {
+            var wait = _nextPressAt - DateTimeOffset.UtcNow;
+            if (wait > TimeSpan.Zero)
+            {
+                await Task.Delay(wait, ct).ConfigureAwait(false);
+            }
+
+            _logger.LogDebug("Pressing {Key} for {What}.", key.Label, what);
+            var pressed = _input.PressKey(key);
+            _nextPressAt = DateTimeOffset.UtcNow + _options.Keys.PressDelay;
+
+            return pressed;
+        }
+        finally
+        {
+            _keyboard.Release();
+        }
     }
 
     private void Warn(string? binding, string what)

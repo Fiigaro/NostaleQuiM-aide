@@ -210,7 +210,7 @@ public sealed class BotConfigurationFile
         if (file.Keys is { } keys)
         {
             options.Keys = keys;
-            applied.Add("key bindings");
+            applied.Add($"key bindings ({keys.PressDelay.TotalMilliseconds:0}ms between presses)");
         }
 
         if (file.Buffs is { Count: > 0 })

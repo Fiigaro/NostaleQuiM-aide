@@ -24,4 +24,14 @@ public sealed class KeyBindings
 
     /// <summary>Gets or sets the key that drinks an MP potion, or null when there is none.</summary>
     public string? MpPotion { get; set; }
+
+    /// <summary>
+    /// Gets or sets the minimum gap between two key presses.
+    /// </summary>
+    /// <remarks>
+    /// Two presses delivered in the same instant are not two presses as far as the client is
+    /// concerned - it can coalesce or drop one. Pacing them is the difference between a rotation
+    /// that fires and one that appears to do nothing.
+    /// </remarks>
+    public TimeSpan PressDelay { get; set; } = TimeSpan.FromMilliseconds(150);
 }

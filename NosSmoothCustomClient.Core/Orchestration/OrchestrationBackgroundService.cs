@@ -178,6 +178,8 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     /// </summary>
     private async Task<bool> TryEngageAsync(CancellationToken ct)
     {
+        var justAcquired = false;
+
         if (_state.Target is not { } target)
         {
             if (_state.FindNearestMonster() is not { } candidate)
@@ -185,7 +187,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
                 return false;
             }
 
-            _state.AcquireTarget(candidate.EntityId, candidate.EntityType, candidate.HpPercentage);
+            justAcquired = _state.AcquireTarget(candidate.EntityId, candidate.EntityType, candidate.HpPercentage);
             _logger.LogInformation("Scan picked up monster #{EntityId} at ({X},{Y}).", candidate.EntityId, candidate.X, candidate.Y);
             target = _state.Target!.Value;
         }
@@ -223,12 +225,24 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return true;
         }
 
-        // Selecting is a no-op where targeting is explicit, and the whole attack where it is not.
-        await _actuator.TargetNearestAsync(ct).ConfigureAwait(false);
+        // Select only when the target actually changed. Re-issuing it every frame would keep
+        // re-selecting whatever is nearest, which mid-fight can drag the character onto a different
+        // monster. Actuators that address the target explicitly treat this as a no-op.
+        if (justAcquired)
+        {
+            await _actuator.TargetNearestAsync(ct).ConfigureAwait(false);
+        }
 
         // Fixed priority: the first rotation entry that is off cooldown and affordable wins,
         // otherwise the basic attack keeps the damage flowing rather than idling the frame.
         var skill = _rotation.SelectNext(_state.CurrentMp);
+
+        // Selecting already started the basic attack, so repeating it in the same breath would be
+        // the same key twice for one decision.
+        if (skill is null && justAcquired)
+        {
+            return true;
+        }
 
         LogPriority
         (
