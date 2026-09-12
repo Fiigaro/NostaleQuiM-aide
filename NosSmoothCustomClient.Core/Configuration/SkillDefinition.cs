@@ -16,13 +16,18 @@ namespace NosSmoothCustomClient.Configuration;
 /// is what keeps the rotation correct if it does not.
 /// </param>
 /// <param name="Enabled">Whether the skill takes part in the rotation.</param>
+/// <param name="Key">
+/// The quick bar key that casts it. This is what the keyboard actuator uses, and it is the only
+/// field that has to be right when the bot drives a real client.
+/// </param>
 public sealed record SkillDefinition
 (
     short CastId,
     string Name,
     long MpCost = 0,
     TimeSpan Cooldown = default,
-    bool Enabled = true
+    bool Enabled = true,
+    string? Key = null
 )
 {
     /// <summary>

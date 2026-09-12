@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NosSmooth.Core.Client;
 using NosSmooth.Core.Extensions;
 using NosSmooth.LocalBinding.Extensions;
@@ -12,6 +13,7 @@ using NosSmoothCustomClient.Client;
 using NosSmoothCustomClient.Configuration;
 using NosSmoothCustomClient.Diagnostics;
 using NosSmoothCustomClient.Orchestration;
+using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.Packets;
 using NosSmoothCustomClient.Responders;
 using NosSmoothCustomClient.State;
@@ -35,13 +37,15 @@ public static class BotServiceRegistration
     /// <param name="mode">Which transport to bind.</param>
     /// <param name="trace">Whether to log every raw packet in both directions.</param>
     /// <param name="configuration">Configuration to read the "Bot" section from, when available.</param>
+    /// <param name="play">Whether actions actually reach the game, rather than only being logged.</param>
     /// <returns>The same collection.</returns>
     public static IServiceCollection AddBotEngine
     (
         this IServiceCollection services,
         RunMode mode,
         bool trace = false,
-        IConfiguration? configuration = null
+        IConfiguration? configuration = null,
+        bool play = false
     )
     {
         var coreAssembly = typeof(BotServiceRegistration).Assembly;
@@ -121,6 +125,19 @@ public static class BotServiceRegistration
                 services.AddSingleton<ProcessTcpManager>();
                 services.AddSingleton<INostaleClient>(PcapClientFactory.Create);
                 services.AddSingleton<IMovementStrategy, PacketWalkStrategy>();
+
+                // Capture can read this server faithfully but cannot forge its outbound traffic, so
+                // acting goes through the keyboard instead. Nothing reaches the game until --play.
+                if (play && OperatingSystem.IsWindows())
+                {
+                    services.AddSingleton<IGameInput, WindowsGameInput>();
+                }
+                else
+                {
+                    services.AddSingleton<IGameInput, DryRunGameInput>();
+                }
+
+                services.AddSingleton<IBotActuator, InputActuator>();
                 break;
 
             default:
@@ -129,6 +146,9 @@ public static class BotServiceRegistration
                 services.AddSingleton<IMovementStrategy, PacketWalkStrategy>();
                 break;
         }
+
+        // The packet path stays the reference for everything the simulator drives.
+        services.TryAddSingleton<IBotActuator, PacketActuator>();
 
         // 7. Workers shared by every front-end.
         services.AddHostedService<NostaleClientHostedService>();

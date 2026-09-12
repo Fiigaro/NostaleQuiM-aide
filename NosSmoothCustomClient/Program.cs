@@ -64,7 +64,7 @@ public static class Program
         });
         builder.Logging.SetMinimumLevel(cli.Verbose ? LogLevel.Debug : LogLevel.Information);
 
-        builder.Services.AddBotEngine(cli.Mode, cli.Trace, builder.Configuration);
+        builder.Services.AddBotEngine(cli.Mode, cli.Trace, builder.Configuration, cli.Play);
         builder.Services.AddHostedService<ConsoleExitService>();
 
         if (cli.ProcessId is { } pid)
@@ -83,7 +83,7 @@ public static class Program
             return 2;
         }
 
-        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused);
+        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused, cli.Play);
 
         // Bind the transport before the loop starts: this is the step that reaches outside the
         // process, so its failures belong here as messages, not later as stack traces.

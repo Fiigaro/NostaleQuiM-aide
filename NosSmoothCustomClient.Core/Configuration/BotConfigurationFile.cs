@@ -72,6 +72,9 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets how early a buff may be refreshed, in seconds.</summary>
     public double? BuffRefreshMarginSeconds { get; set; }
 
+    /// <summary>Gets or sets which key does what on the quick bar.</summary>
+    public KeyBindings? Keys { get; set; }
+
     /// <summary>One waypoint.</summary>
     public sealed class WaypointEntry
     {
@@ -99,6 +102,9 @@ public sealed class BotConfigurationFile
 
         /// <summary>Gets or sets whether the skill takes part in the rotation.</summary>
         public bool Enabled { get; set; } = true;
+
+        /// <summary>Gets or sets the quick bar key that casts it.</summary>
+        public string? Key { get; set; }
     }
 
     /// <summary>One maintained buff.</summary>
@@ -127,6 +133,9 @@ public sealed class BotConfigurationFile
 
         /// <summary>Gets or sets whether the buff is maintained.</summary>
         public bool Enabled { get; set; } = true;
+
+        /// <summary>Gets or sets the quick bar key that applies it.</summary>
+        public string? Key { get; set; }
     }
 
     /// <summary>
@@ -188,7 +197,8 @@ public sealed class BotConfigurationFile
                     string.IsNullOrWhiteSpace(s.Name) ? $"cast {s.CastId}" : s.Name,
                     s.MpCost,
                     TimeSpan.FromSeconds(s.CooldownSeconds),
-                    s.Enabled
+                    s.Enabled,
+                    s.Key
                 ))
                 .ToArray();
 
@@ -196,6 +206,12 @@ public sealed class BotConfigurationFile
         }
 
         Set(file.BuffRefreshMarginSeconds, v => options.BuffRefreshMargin = TimeSpan.FromSeconds(v), "BuffRefreshMargin", applied);
+
+        if (file.Keys is { } keys)
+        {
+            options.Keys = keys;
+            applied.Add("key bindings");
+        }
 
         if (file.Buffs is { Count: > 0 })
         {
@@ -211,7 +227,8 @@ public sealed class BotConfigurationFile
                         : null,
                     b.ItemSlot,
                     b.CardId,
-                    b.Enabled
+                    b.Enabled,
+                    b.Key
                 ))
                 .ToArray();
 

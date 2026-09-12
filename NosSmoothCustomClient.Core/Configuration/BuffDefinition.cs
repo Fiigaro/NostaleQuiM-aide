@@ -18,6 +18,7 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="ItemSlot">The item's slot, when the buff is an item.</param>
 /// <param name="CardId">The buff card the server reports in <c>bf</c>, when known.</param>
 /// <param name="Enabled">Whether the buff is maintained.</param>
+/// <param name="Key">The quick bar key that applies it, used by the keyboard actuator.</param>
 public sealed record BuffDefinition
 (
     string Name,
@@ -27,7 +28,8 @@ public sealed record BuffDefinition
     BagType? ItemBag = null,
     long? ItemSlot = null,
     int? CardId = null,
-    bool Enabled = true
+    bool Enabled = true,
+    string? Key = null
 )
 {
     /// <summary>Gets a value indicating whether this buff is applied by casting a skill.</summary>
@@ -37,10 +39,10 @@ public sealed record BuffDefinition
     public bool IsItem => ItemBag is not null && ItemSlot is not null;
 
     /// <summary>Gets a value indicating whether the definition names a way to apply it at all.</summary>
-    public bool IsUsable => Enabled && (IsSkill || IsItem);
+    public bool IsUsable => Enabled && (IsSkill || IsItem || !string.IsNullOrWhiteSpace(Key));
 
     /// <summary>Gets a stable key for tracking, distinct per source.</summary>
-    public string Key => IsSkill ? $"skill:{CastId}" : $"item:{ItemBag}:{ItemSlot}";
+    public string TrackingKey => Key is { Length: > 0 } k ? $"key:{k}" : IsSkill ? $"skill:{CastId}" : $"item:{ItemBag}:{ItemSlot}";
 
     /// <summary>Gets the duration to assume before the server says otherwise.</summary>
     public TimeSpan EffectiveDuration

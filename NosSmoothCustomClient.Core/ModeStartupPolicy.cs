@@ -16,25 +16,33 @@ public static class ModeStartupPolicy
     /// <param name="services">The service provider.</param>
     /// <param name="mode">The transport.</param>
     /// <param name="explicitlyPaused">Whether the user asked for a paused start.</param>
-    public static void Apply(IServiceProvider services, RunMode mode, bool explicitlyPaused)
+    /// <param name="play">Whether actions actually reach the game.</param>
+    public static void Apply(IServiceProvider services, RunMode mode, bool explicitlyPaused, bool play = false)
     {
         var controller = services.GetRequiredService<BotController>();
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(ModeStartupPolicy));
 
-        if (mode == RunMode.Pcap)
+        if (mode == RunMode.Pcap && play)
         {
-            // Capture can observe faithfully but cannot intercept: a packet it "sends" travels
-            // alongside the client's own, so the server sees it twice. NosSmooth documents this as
-            // detectable. Acting is therefore never the default here - the operator has to opt in
-            // deliberately, at runtime, knowing the cost.
+            // The bot is about to press real keys in a real client. Starting stopped means the
+            // operator chooses the moment, rather than discovering it mid-pull.
             controller.Pause();
             logger.LogWarning
             (
-                "Capture transport starts READ-ONLY. Sending over pcap duplicates every frame " +
-                "server-side, which is detectable. Press P to let the loop act anyway."
+                "PLAY MODE: keystrokes will reach the game. Starting PAUSED - press P when you are " +
+                "somewhere safe and ready."
             );
 
             return;
+        }
+
+        if (mode == RunMode.Pcap)
+        {
+            logger.LogInformation
+            (
+                "Dry run: every decision is logged as [WOULD PRESS] and nothing reaches the game. " +
+                "Play normally and check the decisions look right, then add --play."
+            );
         }
 
         if (explicitlyPaused)

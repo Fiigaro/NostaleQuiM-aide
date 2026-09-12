@@ -5,8 +5,22 @@ namespace NosSmoothCustomClient.Configuration;
 /// <summary>
 /// A single grid waypoint on the current map.
 /// </summary>
-public readonly record struct Waypoint(int X, int Y)
+/// <param name="X">The X coordinate on the map, as the server reports it.</param>
+/// <param name="Y">The Y coordinate on the map.</param>
+/// <param name="ClickX">X offset of the matching point on the minimap, inside the game window.</param>
+/// <param name="ClickY">Y offset of the matching point on the minimap.</param>
+/// <remarks>
+/// Two coordinate systems, each doing a job the other cannot. The map coordinates come from the
+/// packet stream and are what tells the loop whether the character has arrived. The click point is
+/// where to press on the minimap to go there - and the minimap is the one part of the screen that
+/// does not scroll with the character, which is what makes a recorded pixel still correct an hour
+/// later.
+/// </remarks>
+public readonly record struct Waypoint(int X, int Y, int? ClickX = null, int? ClickY = null)
 {
+    /// <summary>Gets a value indicating whether this waypoint can be reached by clicking.</summary>
+    public bool IsClickable => ClickX is not null && ClickY is not null;
+
     /// <inheritdoc />
     public override string ToString()
         => $"({X},{Y})";
@@ -122,6 +136,11 @@ public sealed class BotOptions
     /// Gets or sets the maximum distance at which a spawned monster is considered engageable.
     /// </summary>
     public int EngagementRadius { get; set; } = 12;
+
+    /// <summary>
+    /// Gets or sets which key does what on the quick bar.
+    /// </summary>
+    public KeyBindings Keys { get; set; } = new();
 
     /// <summary>
     /// Gets or sets the buffs kept up on the character.

@@ -68,12 +68,12 @@ public sealed class BuffTracker
                 continue;
             }
 
-            if (_castableAt.TryGetValue(buff.Key, out var castableAt) && castableAt > now)
+            if (_castableAt.TryGetValue(buff.TrackingKey, out var castableAt) && castableAt > now)
             {
                 continue;
             }
 
-            var expiresAt = _expiresAt.TryGetValue(buff.Key, out var value) ? value : DateTimeOffset.MinValue;
+            var expiresAt = _expiresAt.TryGetValue(buff.TrackingKey, out var value) ? value : DateTimeOffset.MinValue;
             var remaining = expiresAt > now ? expiresAt - now : TimeSpan.Zero;
 
             if (remaining <= TimeSpan.Zero)
@@ -97,8 +97,8 @@ public sealed class BuffTracker
     public void MarkCast(BuffDefinition buff)
     {
         var now = DateTimeOffset.UtcNow;
-        _expiresAt[buff.Key] = now + buff.EffectiveDuration;
-        _castableAt[buff.Key] = now + buff.EffectiveCooldown;
+        _expiresAt[buff.TrackingKey] = now + buff.EffectiveDuration;
+        _castableAt[buff.TrackingKey] = now + buff.EffectiveCooldown;
     }
 
     /// <summary>
@@ -121,7 +121,7 @@ public sealed class BuffTracker
         }
 
         var duration = TimeSpan.FromSeconds(tenthsOfSecond / 10d);
-        _expiresAt[buff.Key] = DateTimeOffset.UtcNow + duration;
+        _expiresAt[buff.TrackingKey] = DateTimeOffset.UtcNow + duration;
 
         _logger.LogDebug
         (
@@ -153,8 +153,8 @@ public sealed class BuffTracker
 
         return _options.Buffs.Select(buff =>
         {
-            var expiresAt = _expiresAt.TryGetValue(buff.Key, out var e) ? e : DateTimeOffset.MinValue;
-            var castableAt = _castableAt.TryGetValue(buff.Key, out var c) ? c : DateTimeOffset.MinValue;
+            var expiresAt = _expiresAt.TryGetValue(buff.TrackingKey, out var e) ? e : DateTimeOffset.MinValue;
+            var castableAt = _castableAt.TryGetValue(buff.TrackingKey, out var c) ? c : DateTimeOffset.MinValue;
 
             return new BuffStatus
             (

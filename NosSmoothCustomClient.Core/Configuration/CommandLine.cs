@@ -12,7 +12,8 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="ListProcesses">Whether to print the process scan and exit.</param>
 /// <param name="Trace">Whether to log every raw packet.</param>
 /// <param name="TestInput">Whether to run the background-input test and exit.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput)
+/// <param name="Play">Whether the bot may actually press keys in the game.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play)
 {
     /// <summary>
     /// Parses the arguments.
@@ -40,7 +41,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             ReadProcessId(args),
             Has(args, "--list"),
             Has(args, "--trace"),
-            Has(args, "--test-input")
+            Has(args, "--test-input"),
+            Has(args, "--play")
         );
     }
 
@@ -82,6 +84,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
            Options:
              --pid <id>        The NosTale process to listen to (--pcap). Default: auto-detect.
              --paused          Start without acting; the pipeline still runs and logs.
+             --play            Let the bot actually press keys in the game. Without it every
+                               decision is only logged. Starts paused; press P to begin.
              --verbose         Log every tick.
 
            Diagnostics:
