@@ -13,7 +13,8 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="Trace">Whether to log every raw packet.</param>
 /// <param name="TestInput">Whether to run the background-input test and exit.</param>
 /// <param name="Play">Whether the bot may actually press keys in the game.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play)
+/// <param name="TestKey">A single key to test, instead of the full sequence.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey)
 {
     /// <summary>
     /// Parses the arguments.
@@ -42,7 +43,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             Has(args, "--list"),
             Has(args, "--trace"),
             Has(args, "--test-input"),
-            Has(args, "--play")
+            Has(args, "--play"),
+            ReadValue(args, "--key")
         );
     }
 
@@ -94,10 +96,25 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
              --trace           Log every raw packet in both directions. Always on with --pcap.
              --test-input      Send a few keys to the game window with the game in the
                                background, to find out whether that works at all. Exits after.
+             --key <k>         With --test-input, send only this key (e.g. space, 1, r),
+                               three times, instead of the whole sequence.
            """;
 
     private static bool Has(string[] args, string name)
         => args.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    private static string? ReadValue(string[] args, string name)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+            {
+                return args[i + 1];
+            }
+        }
+
+        return null;
+    }
 
     private static int? ReadProcessId(string[] args)
     {

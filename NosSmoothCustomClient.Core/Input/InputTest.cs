@@ -20,8 +20,9 @@ public static class InputTest
     /// </summary>
     /// <param name="processId">An explicitly chosen process, or null to detect one.</param>
     /// <param name="loggerFactory">The logger factory.</param>
+    /// <param name="singleKey">A single key to test, instead of the full sequence.</param>
     /// <returns>The process exit code.</returns>
-    public static async Task<int> RunAsync(int? processId, ILoggerFactory loggerFactory)
+    public static async Task<int> RunAsync(int? processId, ILoggerFactory loggerFactory, string? singleKey = null)
     {
         var logger = loggerFactory.CreateLogger(typeof(InputTest));
 
@@ -66,6 +67,28 @@ public static class InputTest
         {
             logger.LogInformation("{Remaining}...", remaining);
             await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        }
+
+        // A single named key, for confirming one behaviour without sitting through the rest.
+        if (singleKey is not null)
+        {
+            if (!GameKey.TryParse(singleKey, out var only))
+            {
+                logger.LogError("\"{Key}\" is not a key I can send. Use a digit, a letter, or \"space\".", singleKey);
+                return 6;
+            }
+
+            logger.LogWarning("Sending \"{Key}\" three times, one second apart.", only.Label);
+
+            var sent = 0;
+            for (var i = 0; i < 3; i++)
+            {
+                sent += input.PressKey(only) ? 1 : 0;
+                await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            }
+
+            logger.LogInformation("Queued {Sent}/3. Now look at the game and tell me what happened.", sent);
+            return sent == 3 ? 0 : 5;
         }
 
         GameKey.TryParse("1", out var one);

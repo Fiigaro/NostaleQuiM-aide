@@ -44,7 +44,7 @@ public static class Program
                 .AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; })
                 .SetMinimumLevel(LogLevel.Information));
 
-            return await InputTest.RunAsync(cli.ProcessId, testLoggers).ConfigureAwait(false);
+            return await InputTest.RunAsync(cli.ProcessId, testLoggers, cli.TestKey).ConfigureAwait(false);
         }
 
         if (!cli.IsSupportedHere(out var reason))
