@@ -31,6 +31,8 @@ public static class ModeStartupPolicy
 
         if (mode == RunMode.Pcap && play)
         {
+            services.GetRequiredService<Input.SwitchableGameInput>().SetLive(true);
+
             // The bot is about to press real keys in a real client. Starting stopped means the
             // operator chooses the moment, rather than discovering it mid-pull.
             controller.Pause();

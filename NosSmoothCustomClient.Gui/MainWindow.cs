@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using NosSmoothCustomClient.Configuration;
 using NosSmoothCustomClient.Diagnostics;
+using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.State;
 
 namespace NosSmoothCustomClient.Gui;
@@ -55,6 +56,21 @@ public sealed class MainWindow : Window
     private readonly TextBlock _saveStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly List<SkillRow> _skillRows = new();
     private readonly List<BuffRow> _buffRows = new();
+
+    private readonly SwitchableGameInput? _input;
+    private readonly WaypointRecorder? _recorder;
+
+    private readonly Button _live = new() { Width = 150, Height = 32 };
+    private readonly Button _arm = new() { Width = 190, Height = 28 };
+    private readonly Button _clearRoute = new() { Content = "Effacer", Width = 90, Height = 28 };
+    private readonly Button _saveRoute = new() { Content = "Enregistrer la route", Width = 170, Height = 28 };
+    private readonly StackPanel _routeList = new() { Spacing = 3 };
+    private readonly TextBlock _routeStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBox _keyAttack = KeyBox();
+    private readonly TextBox _keyLoot = KeyBox();
+    private readonly TextBox _keyHp = KeyBox();
+    private readonly TextBox _keyMp = KeyBox();
+    private readonly NumericUpDown _pressDelay = new() { Minimum = 0, Maximum = 2000, Increment = 10, Width = 96, Height = 26, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly SelectableTextBlock _log = new()
     {
         FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
@@ -76,6 +92,8 @@ public sealed class MainWindow : Window
     /// <param name="options">The bot options.</param>
     /// <param name="logs">The log buffer.</param>
     /// <param name="mode">The transport mode, shown in the header.</param>
+    /// <param name="input">The switchable input, when the transport has one.</param>
+    /// <param name="recorder">The waypoint recorder, when the transport has one.</param>
     public MainWindow
     (
         ProtocolStateManager state,
@@ -84,9 +102,13 @@ public sealed class MainWindow : Window
         BotController controller,
         BotOptions options,
         LogBuffer logs,
-        RunMode mode
+        RunMode mode,
+        SwitchableGameInput? input = null,
+        WaypointRecorder? recorder = null
     )
     {
+        _input = input;
+        _recorder = recorder;
         _state = state;
         _rotation = rotation;
         _buffs = buffs;
@@ -118,6 +140,17 @@ public sealed class MainWindow : Window
         _logScroll.Height = 190;
 
         _save.Click += (_, _) => SaveSettings();
+        _live.Click += (_, _) => ToggleLive();
+        _arm.Click += (_, _) => ToggleArm();
+        _clearRoute.Click += (_, _) => { _recorder?.Clear(); RefreshRoute(); };
+        _saveRoute.Click += (_, _) => SaveRoute();
+
+        if (_recorder is not null)
+        {
+            _recorder.Changed += () => Dispatcher.UIThread.Post(RefreshRoute);
+        }
+
+        BuildKeyFields();
 
         BuildSkillRows();
         BuildBuffRows();
@@ -176,8 +209,21 @@ public sealed class MainWindow : Window
 
         _entities.Text = _state.KnownEntities.Count.ToString();
 
+        if (_input is null)
+        {
+            _live.Content = "Mode simulateur";
+            _live.IsEnabled = false;
+        }
+        else
+        {
+            _live.Content = _input.IsLive ? "JOUE — clic pour arrêter" : "Simulation (n'agit pas)";
+            _live.IsEnabled = _input.CanGoLive || _input.IsLive;
+            _live.Foreground = _input.IsLive ? Blocked : Ink;
+        }
+
         RefreshSkills();
         RefreshBuffs();
+        RefreshRoute();
         RefreshLog();
     }
 
@@ -288,15 +334,17 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             Margin = new Thickness(14),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto")
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto")
         };
 
         grid.Children.Add(Place(BuildHeader(), 0));
         grid.Children.Add(Place(BuildVitals(), 1));
         grid.Children.Add(Place(BuildInfo(), 2));
-        grid.Children.Add(Place(Section("Rotation", _skills), 3));
-        grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 4));
-        grid.Children.Add(Place(Section("Journal", _logScroll), 5));
+        grid.Children.Add(Place(Section("Touches", BuildKeySection()), 3));
+        grid.Children.Add(Place(Section("Rotation", _skills), 4));
+        grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 5));
+        grid.Children.Add(Place(Section("Route", BuildRouteSection()), 6));
+        grid.Children.Add(Place(Section("Journal", _logScroll), 7));
 
         return new ScrollViewer
         {
@@ -308,7 +356,7 @@ public sealed class MainWindow : Window
 
     private Control BuildHeader()
     {
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto") };
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto") };
 
         var title = new StackPanel { Spacing = 2 };
         title.Children.Add(Label("NosSmoothCustomClient", 17, FontWeight.Bold));
@@ -322,11 +370,15 @@ public sealed class MainWindow : Window
         _status.VerticalAlignment = VerticalAlignment.Center;
         _status.Margin = new Thickness(0, 0, 12, 0);
 
+        _live.Margin = new Thickness(0, 0, 8, 0);
+
         Grid.SetColumn(title, 0);
         Grid.SetColumn(_status, 1);
-        Grid.SetColumn(_toggle, 2);
+        Grid.SetColumn(_live, 2);
+        Grid.SetColumn(_toggle, 3);
         row.Children.Add(title);
         row.Children.Add(_status);
+        row.Children.Add(_live);
         row.Children.Add(_toggle);
 
         return new Border { Child = row, Margin = new Thickness(0, 0, 0, 12) };
@@ -559,6 +611,193 @@ public sealed class MainWindow : Window
         public TextBlock Status { get; set; } = null!;
 
         public Border Dot { get; set; } = null!;
+    }
+
+    private static TextBox KeyBox()
+        => new()
+        {
+            Width = 54,
+            Height = 26,
+            FontSize = 12,
+            MaxLength = 5,
+            FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
+            VerticalAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+
+    private void BuildKeyFields()
+    {
+        var keys = _options.Keys;
+
+        _keyAttack.Text = keys.TargetAndAttack;
+        _keyLoot.Text = keys.Loot;
+        _keyHp.Text = keys.HpPotion;
+        _keyMp.Text = keys.MpPotion;
+        _pressDelay.Value = (decimal)keys.PressDelay.TotalMilliseconds;
+
+        // Empty means "no key for this action", which is different from a bad key: the first
+        // disables the action deliberately, the second is a typo worth showing.
+        Bind(_keyAttack, v => _options.Keys.TargetAndAttack = v ?? "space");
+        Bind(_keyLoot, v => _options.Keys.Loot = v);
+        Bind(_keyHp, v => _options.Keys.HpPotion = v);
+        Bind(_keyMp, v => _options.Keys.MpPotion = v);
+
+        _pressDelay.ValueChanged += (_, e) =>
+        {
+            if (e.NewValue is { } value)
+            {
+                _options.Keys.PressDelay = TimeSpan.FromMilliseconds((double)value);
+                MarkDirty();
+            }
+        };
+    }
+
+    private void Bind(TextBox box, Action<string?> assign)
+        => box.TextChanged += (_, _) =>
+        {
+            var text = string.IsNullOrWhiteSpace(box.Text) ? null : box.Text.Trim();
+            var valid = text is null || GameKey.TryParse(text, out _);
+
+            box.Foreground = valid ? Ink : Blocked;
+            if (valid)
+            {
+                assign(text);
+                MarkDirty();
+            }
+        };
+
+    private Control BuildKeySection()
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,Auto,*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto")
+        };
+
+        AddKeyCell(grid, 0, 0, "Cibler / attaquer", _keyAttack);
+        AddKeyCell(grid, 0, 2, "Ramasser", _keyLoot);
+        AddKeyCell(grid, 1, 0, "Potion de vie", _keyHp);
+        AddKeyCell(grid, 1, 2, "Potion de mana", _keyMp);
+        AddKeyCell(grid, 2, 0, "Délai entre touches (ms)", _pressDelay);
+
+        return grid;
+    }
+
+    private static void AddKeyCell(Grid grid, int row, int column, string label, Control field)
+    {
+        var text = new TextBlock
+        {
+            Text = label,
+            Foreground = Muted,
+            FontSize = 11,
+            Margin = new Thickness(0, 4, 10, 4),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        field.Margin = new Thickness(0, 4, 24, 4);
+
+        Grid.SetRow(text, row);
+        Grid.SetColumn(text, column);
+        Grid.SetRow(field, row);
+        Grid.SetColumn(field, column + 1);
+        grid.Children.Add(text);
+        grid.Children.Add(field);
+    }
+
+    private Control BuildRouteSection()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        actions.Children.Add(_arm);
+        actions.Children.Add(_saveRoute);
+        actions.Children.Add(_clearRoute);
+        actions.Children.Add(_routeStatus);
+
+        panel.Children.Add(actions);
+        panel.Children.Add(_routeList);
+
+        if (_recorder is null)
+        {
+            _arm.IsEnabled = false;
+            _saveRoute.IsEnabled = false;
+            _clearRoute.IsEnabled = false;
+            _routeStatus.Text = "disponible en mode capture (--pcap)";
+        }
+
+        return panel;
+    }
+
+    private void ToggleLive()
+    {
+        if (_input is null)
+        {
+            return;
+        }
+
+        _input.SetLive(!_input.IsLive);
+        Refresh();
+    }
+
+    private void ToggleArm()
+    {
+        if (_recorder is null)
+        {
+            return;
+        }
+
+        _recorder.Armed = !_recorder.Armed;
+        RefreshRoute();
+    }
+
+    private void SaveRoute()
+    {
+        if (_recorder is null)
+        {
+            return;
+        }
+
+        var (path, error) = _recorder.Save();
+        _routeStatus.Text = path is null ? "échec : " + error : "route enregistrée";
+        _routeStatus.Foreground = path is null ? Blocked : Ready;
+    }
+
+    private void RefreshRoute()
+    {
+        // The list is worth showing whether or not a recorder exists: without one the configured
+        // route is still what the bot will walk, and an empty panel would read as "no route".
+        if (_recorder is not null)
+        {
+            _arm.Content = _recorder.Armed ? "F9 armé — cliquer pour désarmer" : "Armer l'enregistrement (F9)";
+        }
+        else
+        {
+            _arm.Content = "Enregistrement indisponible";
+        }
+
+        var route = _recorder?.Recorded ?? Array.Empty<Waypoint>();
+        var shown = route.Count > 0 ? route : _options.Waypoints.ToArray();
+
+        _routeList.Children.Clear();
+
+        if (shown.Count == 0)
+        {
+            _routeList.Children.Add(new TextBlock { Text = "aucun point enregistré", Foreground = Muted, FontSize = 11 });
+            return;
+        }
+
+        for (var i = 0; i < shown.Count; i++)
+        {
+            var waypoint = shown[i];
+            _routeList.Children.Add(new TextBlock
+            {
+                Text = $"  {i + 1}.  carte {waypoint}   " +
+                       (waypoint.IsClickable ? $"clic ({waypoint.ClickX},{waypoint.ClickY})" : "pas de point de clic"),
+                Foreground = waypoint.IsClickable ? Ink : Blocked,
+                FontSize = 11,
+                FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace")
+            });
+        }
     }
 
     private static Control Section(string heading, Control content)

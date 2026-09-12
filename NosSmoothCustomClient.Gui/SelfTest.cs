@@ -68,6 +68,22 @@ public static class SelfTest
         }
 
         // And saving must produce a file the next run will actually read back.
+        var textBoxes = visuals.OfType<TextBox>().ToList();
+
+        // Editing a key must reach the live options, the same way a checkbox does.
+        var keyEditWorks = false;
+        if (textBoxes.Count > 0)
+        {
+            var before = options.Keys.HpPotion;
+            var box = textBoxes.FirstOrDefault(b => b.Text == before) ?? textBoxes[0];
+            box.Text = "9";
+            Dispatcher.UIThread.RunJobs();
+            keyEditWorks = options.Keys.TargetAndAttack == "9"
+                           || options.Keys.HpPotion == "9"
+                           || options.Keys.Loot == "9"
+                           || options.Keys.MpPotion == "9";
+        }
+
         var (savedPath, saveError) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
         var saveWorks = savedPath is not null && File.Exists(savedPath);
         if (savedPath is not null)
@@ -97,7 +113,13 @@ public static class SelfTest
             ("cases à cocher par ligne", boxes.Count >= expectedRows),
             ("champs de durée par ligne", numbers.Count >= expectedRows),
             ("cocher modifie les options en direct", toggleWorks),
-            ("enregistrement des réglages", saveWorks)
+            ("enregistrement des réglages", saveWorks),
+
+            // Le panneau touches et la route.
+            ("champs de touches", textBoxes.Count >= 4),
+            ("modifier une touche change les options", keyEditWorks),
+            ("section route rendue", texts.Any(t => t.Contains("aucun point") || t.Contains("carte ("))),
+            ("boutons d'action présents", visuals.OfType<Button>().Count() >= 4)
         };
 
         var failed = 0;

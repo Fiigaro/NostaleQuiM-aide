@@ -20,6 +20,14 @@ using NosSmoothCustomClient.State;
 
 namespace NosSmoothCustomClient;
 
+/// <summary>Marks that the run should begin with keystrokes reaching the game.</summary>
+/// <param name="Value">Whether to start live.</param>
+public sealed record StartLive(bool Value);
+
+/// <summary>Marks that the run should begin with waypoint recording armed.</summary>
+/// <param name="Value">Whether to start armed.</param>
+public sealed record StartArmed(bool Value);
+
 /// <summary>
 /// The single wiring point shared by every front-end.
 /// </summary>
@@ -129,21 +137,25 @@ public static class BotServiceRegistration
                 services.AddSingleton<IMovementStrategy, PacketWalkStrategy>();
 
                 // Capture can read this server faithfully but cannot forge its outbound traffic, so
-                // acting goes through the keyboard instead. Nothing reaches the game until --play.
+                // acting goes through the keyboard instead. Live or dry run is a runtime switch
+                // rather than a launch flag, which is what makes it usable as a kill switch.
+                services.AddSingleton<SwitchableGameInput>();
+                services.AddSingleton<IGameInput>(sp => sp.GetRequiredService<SwitchableGameInput>());
+                services.AddSingleton<IBotActuator, InputActuator>();
+
+                // Always available so the window can arm it; the command line flag only decides
+                // whether it starts armed.
+                services.AddSingleton<WaypointRecorder>();
+                services.AddHostedService(sp => sp.GetRequiredService<WaypointRecorder>());
+
                 if (play && OperatingSystem.IsWindows())
                 {
-                    services.AddSingleton<IGameInput, WindowsGameInput>();
+                    services.AddSingleton(new StartLive(true));
                 }
-                else
-                {
-                    services.AddSingleton<IGameInput, DryRunGameInput>();
-                }
-
-                services.AddSingleton<IBotActuator, InputActuator>();
 
                 if (recordWaypoints)
                 {
-                    services.AddHostedService<WaypointRecorder>();
+                    services.AddSingleton(new StartArmed(true));
                 }
 
                 break;

@@ -59,6 +59,8 @@ public sealed class App : Application
             services.GetRequiredService<BotController>(),
             services.GetRequiredService<BotOptions>(),
             services.GetRequiredService<LogBuffer>(),
-            mode
+            mode,
+            services.GetService<NosSmoothCustomClient.Input.SwitchableGameInput>(),
+            services.GetService<NosSmoothCustomClient.Input.WaypointRecorder>()
         );
 }

@@ -32,6 +32,9 @@ public sealed class WaypointRecorder : BackgroundService
     private readonly ILogger<WaypointRecorder> _logger;
 
     private readonly List<Waypoint> _recorded = new();
+    private readonly object _sync = new();
+
+    private volatile bool _armed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WaypointRecorder"/> class.
@@ -41,20 +44,91 @@ public sealed class WaypointRecorder : BackgroundService
     /// <param name="options">The bot options the route is written into.</param>
     /// <param name="lifetime">The application lifetime.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="startArmed">Whether recording begins armed.</param>
     public WaypointRecorder
     (
         CaptureTarget target,
         ProtocolStateManager state,
         BotOptions options,
         IHostApplicationLifetime lifetime,
-        ILogger<WaypointRecorder> logger
+        ILogger<WaypointRecorder> logger,
+        StartArmed? startArmed = null
     )
     {
+        _armed = startArmed?.Value ?? false;
         _target = target;
         _state = state;
         _options = options;
         _lifetime = lifetime;
         _logger = logger;
+    }
+
+    /// <summary>Raised whenever the recorded route changes.</summary>
+    public event Action? Changed;
+
+    /// <summary>Gets or sets a value indicating whether F9 records a waypoint.</summary>
+    /// <remarks>
+    /// Off by default: F9 is an ordinary key in the game, and capturing on it unprompted would turn
+    /// a normal keypress into a silent edit of the route.
+    /// </remarks>
+    public bool Armed
+    {
+        get => _armed;
+        set
+        {
+            if (_armed == value)
+            {
+                return;
+            }
+
+            _armed = value;
+            _logger.LogInformation(value
+                ? "Waypoint recording ARMED: stand on a spot, point at it on the minimap, press F9."
+                : "Waypoint recording disarmed.");
+        }
+    }
+
+    /// <summary>Gets the route recorded so far.</summary>
+    public IReadOnlyList<Waypoint> Recorded
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _recorded.ToArray();
+            }
+        }
+    }
+
+    /// <summary>Discards the recorded route.</summary>
+    public void Clear()
+    {
+        lock (_sync)
+        {
+            _recorded.Clear();
+        }
+
+        _logger.LogInformation("Recorded route cleared.");
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Applies the recorded route to the live options and writes it to the override file.
+    /// </summary>
+    /// <returns>The path written, or null with the reason.</returns>
+    public (string? Path, string? Error) Save()
+    {
+        lock (_sync)
+        {
+            if (_recorded.Count == 0)
+            {
+                return (null, "no waypoint recorded");
+            }
+
+            _options.Waypoints = _recorded.ToList();
+        }
+
+        return LocalConfigurationWriter.Save(_options);
     }
 
     /// <inheritdoc />
@@ -76,11 +150,11 @@ public sealed class WaypointRecorder : BackgroundService
 
         var window = process.MainWindowHandle;
 
-        _logger.LogWarning("ROUTE RECORDING");
-        _logger.LogInformation("  1. Walk your character to a spot on your farming route.");
-        _logger.LogInformation("  2. Point the mouse at that same spot on the minimap.");
-        _logger.LogInformation("  3. Press F9. Repeat for each waypoint, in the order to walk them.");
-        _logger.LogInformation("  4. Press F10 when the route is complete.");
+        _logger.LogInformation
+        (
+            "Waypoint recorder ready. Arm it in the window (or start with --record-waypoints), " +
+            "then: stand on a spot, point at it on the minimap, press F9. F10 saves the route."
+        );
 
         var f9WasDown = false;
         var f10WasDown = false;
@@ -93,16 +167,14 @@ public sealed class WaypointRecorder : BackgroundService
                 var f10 = IsDown(VkF10);
 
                 // Edge detection: a held key must record one waypoint, not fifty.
-                if (f9 && !f9WasDown)
+                if (_armed && f9 && !f9WasDown)
                 {
                     Capture(window);
                 }
 
-                if (f10 && !f10WasDown)
+                if (_armed && f10 && !f10WasDown)
                 {
                     Finish();
-                    _lifetime.StopApplication();
-                    return;
                 }
 
                 f9WasDown = f9;
@@ -114,7 +186,10 @@ public sealed class WaypointRecorder : BackgroundService
         catch (OperationCanceledException)
         {
             // Stopped with Ctrl+C: keep whatever was recorded rather than discarding it.
-            Finish();
+            if (_recorded.Count > 0)
+            {
+                Finish();
+            }
         }
     }
 
@@ -147,12 +222,18 @@ public sealed class WaypointRecorder : BackgroundService
 
         var position = _state.Position;
         var waypoint = new Waypoint(position.X, position.Y, point.X, point.Y);
-        _recorded.Add(waypoint);
+
+        lock (_sync)
+        {
+            _recorded.Add(waypoint);
+        }
+
+        Changed?.Invoke();
 
         _logger.LogInformation
         (
             "Waypoint {Number} recorded: map {Map}, minimap click at ({ClickX},{ClickY}).",
-            _recorded.Count,
+            Recorded.Count,
             waypoint,
             point.X,
             point.Y
@@ -170,27 +251,21 @@ public sealed class WaypointRecorder : BackgroundService
 
     private void Finish()
     {
-        if (_recorded.Count == 0)
-        {
-            _logger.LogWarning("No waypoint was recorded; nothing written.");
-            return;
-        }
+        var (path, error) = Save();
 
-        _options.Waypoints = _recorded.ToList();
-
-        var (path, error) = LocalConfigurationWriter.Save(_options);
         if (path is null)
         {
-            _logger.LogError("Could not save the route: {Error}", error);
+            _logger.LogWarning("Route not saved: {Error}", error);
             return;
         }
 
+        var route = Recorded;
         _logger.LogInformation
         (
             "{Count} waypoint(s) saved to {Path}: {Route}",
-            _recorded.Count,
+            route.Count,
             path,
-            string.Join(" -> ", _recorded.Select(w => w.ToString()))
+            string.Join(" -> ", route.Select(w => w.ToString()))
         );
     }
 
