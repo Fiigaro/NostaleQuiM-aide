@@ -9,3 +9,4 @@ generated/
 capture.log
 *.capture.log
 extrait.txt
+appsettings.local.json

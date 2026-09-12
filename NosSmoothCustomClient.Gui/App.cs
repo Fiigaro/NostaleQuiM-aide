@@ -55,6 +55,7 @@ public sealed class App : Application
         (
             services.GetRequiredService<ProtocolStateManager>(),
             services.GetRequiredService<SkillRotation>(),
+            services.GetRequiredService<BuffTracker>(),
             services.GetRequiredService<BotController>(),
             services.GetRequiredService<BotOptions>(),
             services.GetRequiredService<LogBuffer>(),

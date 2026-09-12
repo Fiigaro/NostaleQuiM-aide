@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using NosSmoothCustomClient.Configuration;
+using System.IO;
 using NosSmoothCustomClient.Diagnostics;
 using NosSmoothCustomClient.State;
 using Microsoft.Extensions.DependencyInjection;
@@ -49,6 +50,31 @@ public static class SelfTest
 
         var visuals = window.GetVisualDescendants().ToList();
         var texts = visuals.OfType<TextBlock>().Select(t => t.Text ?? string.Empty).ToList();
+        var boxes = visuals.OfType<CheckBox>().ToList();
+        var numbers = visuals.OfType<NumericUpDown>().ToList();
+        var expectedRows = options.Skills.Count + options.Buffs.Count;
+
+        // Toggling a box must reach the live options, not just the control: the whole point of the
+        // panel is that a change takes effect on the running bot.
+        var toggleWorks = false;
+        if (boxes.Count > 0 && options.Skills.Count > 0)
+        {
+            var before = options.Skills[0].Enabled;
+            boxes[0].IsChecked = !before;
+            Dispatcher.UIThread.RunJobs();
+            toggleWorks = options.Skills[0].Enabled != before;
+            boxes[0].IsChecked = before;
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // And saving must produce a file the next run will actually read back.
+        var (savedPath, saveError) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
+        var saveWorks = savedPath is not null && File.Exists(savedPath);
+        if (savedPath is not null)
+        {
+            File.Delete(savedPath);
+        }
+
         var checks = new (string Name, bool Passed)[]
         {
             ("fenêtre construite", window.IsVisible),
@@ -65,7 +91,13 @@ public static class SelfTest
             ("moteur : journal alimenté", lines.Count > 20),
             ("moteur : paquets échangés", lines.Any(l => l.Message.Contains("[IN ]")) && lines.Any(l => l.Message.Contains("[OUT]"))),
             ("moteur : rotation active", lines.Any(l => l.Message.Contains("[OUT] u_s"))),
-            ("journal rendu dans l'UI", texts.Any(t => t.Contains("[IN ]")))
+            ("journal rendu dans l'UI", texts.Any(t => t.Contains("[IN ]"))),
+
+            // Le panneau de réglages.
+            ("cases à cocher par ligne", boxes.Count >= expectedRows),
+            ("champs de durée par ligne", numbers.Count >= expectedRows),
+            ("cocher modifie les options en direct", toggleWorks),
+            ("enregistrement des réglages", saveWorks)
         };
 
         var failed = 0;

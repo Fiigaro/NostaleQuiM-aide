@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -55,6 +56,9 @@ public static class Program
         }
 
         var builder = Host.CreateApplicationBuilder(args);
+
+        // Loaded after appsettings.json so anything tuned in the window wins over the file.
+        builder.Configuration.AddJsonFile(LocalConfigurationWriter.FileName, optional: true, reloadOnChange: false);
 
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(options =>

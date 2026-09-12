@@ -184,7 +184,7 @@ public sealed class BotConfigurationFile
 
         if (file.Waypoints is { Count: > 0 })
         {
-            options.Waypoints = file.Waypoints.Select(w => new Waypoint(w.X, w.Y)).ToArray();
+            options.Waypoints = file.Waypoints.Select(w => new Waypoint(w.X, w.Y)).ToList();
             applied.Add($"{file.Waypoints.Count} waypoint(s)");
         }
 
@@ -200,7 +200,7 @@ public sealed class BotConfigurationFile
                     s.Enabled,
                     s.Key
                 ))
-                .ToArray();
+                .ToList();
 
             applied.Add($"{file.Skills.Count} skill(s)");
         }
@@ -230,7 +230,7 @@ public sealed class BotConfigurationFile
                     b.Enabled,
                     b.Key
                 ))
-                .ToArray();
+                .ToList();
 
             var usable = options.Buffs.Count(b => b.IsUsable);
             applied.Add($"{file.Buffs.Count} buff(s), {usable} usable");

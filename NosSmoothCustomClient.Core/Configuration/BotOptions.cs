@@ -87,7 +87,7 @@ public sealed class BotOptions
     /// falls back to <see cref="BasicAttackCastId"/>. Cast ids, MP costs and cooldowns are
     /// placeholders - they must be set to the character's actual skill bar.
     /// </remarks>
-    public IReadOnlyList<SkillDefinition> Skills { get; set; } = new[]
+    public IList<SkillDefinition> Skills { get; set; } = new List<SkillDefinition>
     {
         new SkillDefinition(3, "Sort lourd",   60, TimeSpan.FromSeconds(12)),
         new SkillDefinition(2, "Sort moyen",   35, TimeSpan.FromSeconds(8)),
@@ -145,7 +145,7 @@ public sealed class BotOptions
     /// <summary>
     /// Gets or sets the buffs kept up on the character.
     /// </summary>
-    public IReadOnlyList<BuffDefinition> Buffs { get; set; } = Array.Empty<BuffDefinition>();
+    public IList<BuffDefinition> Buffs { get; set; } = new List<BuffDefinition>();
 
     /// <summary>
     /// Gets or sets how early a buff may be refreshed when out of combat.
@@ -155,7 +155,7 @@ public sealed class BotOptions
     /// <summary>
     /// Gets or sets the grid path the character loops over while no target is alive.
     /// </summary>
-    public IReadOnlyList<Waypoint> Waypoints { get; set; } = new[]
+    public IList<Waypoint> Waypoints { get; set; } = new List<Waypoint>
     {
         new Waypoint(50, 50),
         new Waypoint(70, 50),
