@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using NosSmooth.Core.Client;
+using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.Configuration;
 
 namespace NosSmoothCustomClient.Client;
@@ -13,6 +15,11 @@ namespace NosSmoothCustomClient.Client;
 /// capture it loads the native libpcap bindings. Doing it explicitly, early and guarded means a
 /// missing Npcap or a client that is not running reads as the setup problem it is, rather than
 /// surfacing later as an unhandled dependency injection failure with a stack trace.
+///
+/// The actuator is prepared here too, and in this order, because it can only find the game window
+/// once the transport has identified the process. Leaving that call out is not a degraded mode: the
+/// window is never bound, so every keystroke is silently refused and the bot appears to do nothing
+/// at all.
 /// </remarks>
 public static class TransportBinder
 {
@@ -28,6 +35,20 @@ public static class TransportBinder
         try
         {
             services.GetRequiredService<INostaleClient>();
+
+            // Order matters: the transport identifies the process, the actuator then binds to its
+            // window.
+            var actuator = services.GetRequiredService<IBotActuator>();
+            if (!actuator.TryPrepare(out var actuatorError))
+            {
+                error = actuatorError;
+                return false;
+            }
+
+            services.GetRequiredService<ILoggerFactory>()
+                .CreateLogger(typeof(TransportBinder))
+                .LogInformation("Ready to act through {Actuator}.", actuator.Description);
+
             error = string.Empty;
             return true;
         }

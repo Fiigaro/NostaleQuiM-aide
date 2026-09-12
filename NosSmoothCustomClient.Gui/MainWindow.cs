@@ -224,12 +224,34 @@ public sealed class MainWindow : Window
         {
             _live.Content = "Mode simulateur";
             _live.IsEnabled = false;
+            ToolTip.SetTip(_live, "Lancé en --simulate : rien n'est envoyé au jeu. Relance en --pcap.");
+        }
+        else if (!_input.CanGoLive && !_input.IsLive)
+        {
+            // Say why the button cannot be pressed. A disabled button with no reason is what made
+            // the bot look like it did nothing at all.
+            _live.Content = "Jeu non lié";
+            _live.IsEnabled = false;
+            _live.Foreground = Blocked;
+            ToolTip.SetTip
+            (
+                _live,
+                "Aucune fenêtre de jeu n'est liée, les touches ne peuvent pas partir. "
+                + "Vérifie que NosTale tourne, puis relance (au besoin avec --pid)."
+            );
         }
         else
         {
             _live.Content = _input.IsLive ? "JOUE — clic pour arrêter" : "Simulation (n'agit pas)";
-            _live.IsEnabled = _input.CanGoLive || _input.IsLive;
+            _live.IsEnabled = true;
             _live.Foreground = _input.IsLive ? Blocked : Ink;
+            ToolTip.SetTip
+            (
+                _live,
+                _input.IsLive
+                    ? "Les touches partent vers le jeu. Clic pour reprendre la main."
+                    : "Clic pour laisser le bot appuyer sur les touches du jeu."
+            );
         }
 
         RefreshSkills();

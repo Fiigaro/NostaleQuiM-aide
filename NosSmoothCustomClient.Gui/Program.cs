@@ -49,13 +49,15 @@ public static class Program
         App.Services = host.Services;
         App.Mode = cli.Mode;
 
-        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused, cli.Play, cli.RecordWaypoints);
-
         if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
         {
             await Console.Error.WriteLineAsync(transportError).ConfigureAwait(false);
             return 3;
         }
+
+        // After the bind, never before: --play asks for the live keyboard, which is refused while
+        // no game window is bound.
+        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused, cli.Play, cli.RecordWaypoints);
 
         await host.StartAsync().ConfigureAwait(false);
 

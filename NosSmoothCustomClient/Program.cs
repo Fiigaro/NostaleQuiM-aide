@@ -96,8 +96,6 @@ public static class Program
             return 2;
         }
 
-        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused, cli.Play, cli.RecordWaypoints);
-
         // Bind the transport before the loop starts: this is the step that reaches outside the
         // process, so its failures belong here as messages, not later as stack traces.
         if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
@@ -105,6 +103,10 @@ public static class Program
             await Console.Error.WriteLineAsync(transportError).ConfigureAwait(false);
             return 3;
         }
+
+        // After the bind, never before: --play asks for the live keyboard, which is refused while
+        // no game window is bound.
+        ModeStartupPolicy.Apply(host.Services, cli.Mode, cli.Paused, cli.Play, cli.RecordWaypoints);
 
         LogStartup(host.Services, cli.Mode);
 
