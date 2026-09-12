@@ -39,6 +39,25 @@ public sealed class SkillBarMap
     }
 
     /// <summary>
+    /// Records a single VNum to cast id pair, without disturbing the rest of the bar.
+    /// </summary>
+    /// <param name="vnum">The skill VNum.</param>
+    /// <param name="castId">The slot it was cast from.</param>
+    /// <returns>True when this is new knowledge.</returns>
+    /// <remarks>
+    /// <c>ski</c> is only sent at login and when the Specialist changes, so a bot started while
+    /// already playing never sees one and would otherwise never learn the bar at all. Watching which
+    /// VNum comes back when a given slot is pressed rebuilds the same mapping from the session
+    /// itself.
+    /// </remarks>
+    public bool Learn(int vnum, int castId)
+    {
+        var known = _castIdByVNum.TryGetValue(vnum, out var existing) && existing == castId;
+        _castIdByVNum[vnum] = castId;
+        return !known;
+    }
+
+    /// <summary>
     /// Finds the cast id of a skill.
     /// </summary>
     /// <param name="vnum">The skill VNum.</param>

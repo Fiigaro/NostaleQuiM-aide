@@ -240,6 +240,16 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return true;
         }
 
+        // Hold everything while a cast is outstanding. Another key now could cancel the skill we
+        // just asked for, and it would make the server's answer ambiguous - which matters, because
+        // that answer is how the quick bar gets identified when no ski was ever seen. The wait is
+        // bounded: the press expires with its confirmation window.
+        if (_rotation.PendingCastId is { } pending)
+        {
+            _logger.LogDebug("Waiting for the server to confirm the cast from slot {CastId}.", pending);
+            return true;
+        }
+
         if (!_state.TryTakeAttackGate(_options.AttackInterval))
         {
             return true;
@@ -362,6 +372,22 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         var waypoints = _options.Waypoints;
         if (waypoints.Count == 0)
         {
+            return;
+        }
+
+        // A route is minimap click points, and a minimap belongs to a map. Walking one recorded
+        // elsewhere is clicking at random - which is merely useless while grinding and actively
+        // harmful in a raid, where the next room is another map entirely.
+        if (_options.RouteMapId is { } routeMap && _state.CurrentMapId != routeMap)
+        {
+            LogPriority
+            (
+                4,
+                "navigation: on map {0}, but the route belongs to map {1} - holding position",
+                _state.CurrentMapId,
+                routeMap
+            );
+
             return;
         }
 

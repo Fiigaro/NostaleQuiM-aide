@@ -126,7 +126,18 @@ public sealed class WaypointRecorder : BackgroundService
             }
 
             _options.Waypoints = _recorded.ToList();
+
+            // Stamp the map. The click points are positions on this minimap and mean nothing on
+            // another one, so the route carries where it belongs and navigation stays put elsewhere.
+            _options.RouteMapId = _state.CurrentMapId >= 0 ? _state.CurrentMapId : null;
         }
+
+        _logger.LogInformation
+        (
+            "Route saved: {Count} point(s) on map {MapId}.",
+            _options.Waypoints.Count,
+            _options.RouteMapId?.ToString() ?? "unknown"
+        );
 
         return LocalConfigurationWriter.Save(_options);
     }

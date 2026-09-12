@@ -53,22 +53,47 @@ public sealed class SkillResponder :
         }
 
         // su omits the VNum for a plain hit; only a named skill can confirm a rotation entry.
-        if (packet.SkillVNum is not { } vnum || !_bar.TryGetCastId(vnum, out var castId))
+        if (packet.SkillVNum is not { } vnum)
         {
-            // The basic attack, or a skill outside the bar we were told about. Either way there is
-            // nothing in the rotation to confirm.
             return Task.FromResult(Result.FromSuccess());
         }
 
-        if (_rotation.ConfirmCast((short)castId))
+        if (_bar.TryGetCastId(vnum, out var castId))
         {
-            _logger.LogDebug
-            (
-                "su -> we cast VNum {VNum} (slot {CastId}); server cooldown field reads {Cooldown}.",
-                vnum,
-                castId,
-                packet.SkillCooldown
-            );
+            if (_rotation.ConfirmCast((short)castId))
+            {
+                _logger.LogDebug
+                (
+                    "su -> we cast VNum {VNum} (slot {CastId}); server cooldown field reads {Cooldown}.",
+                    vnum,
+                    castId,
+                    packet.SkillCooldown
+                );
+            }
+
+            return Task.FromResult(Result.FromSuccess());
+        }
+
+        // The bar is unknown, which is the normal case for a bot started while already in game -
+        // ski is only sent at login and on a Specialist change. The cast can still be identified:
+        // a cooldown of its own is what separates a real skill from the plain swing the attack key
+        // produces, and the loop holds every other key while one press is outstanding, so that
+        // press is the only thing this can be.
+        if (packet.SkillCooldown > 0 && _rotation.TryConfirmPending(out var pending))
+        {
+            if (_bar.Learn(vnum, pending))
+            {
+                _logger.LogInformation
+                (
+                    "Learned that quick bar slot {CastId} casts VNum {VNum} (server cooldown field {Cooldown}). " +
+                    "No ski was seen this session, so the bar is being read from your own casts.",
+                    pending,
+                    vnum,
+                    packet.SkillCooldown
+                );
+            }
+
+            return Task.FromResult(Result.FromSuccess());
         }
 
         return Task.FromResult(Result.FromSuccess());

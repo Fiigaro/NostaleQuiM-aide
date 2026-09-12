@@ -142,6 +142,18 @@ public sealed class BotOptions
     public int MaxStepDistance { get; set; } = 3;
 
     /// <summary>
+    /// Gets or sets the map the patrol route was recorded on, or null when it is not tied to one.
+    /// </summary>
+    /// <remarks>
+    /// A route is a list of minimap click points, and a minimap belongs to a map. Walking one
+    /// recorded elsewhere means clicking arbitrary spots - harmless while grinding, much less so in
+    /// a raid, where the next room is a different map and the clicks land on whatever is there.
+    /// Recording a route stores the map it was recorded on, and navigation then holds off anywhere
+    /// else. Clear it to walk the route on any map.
+    /// </remarks>
+    public int? RouteMapId { get; set; }
+
+    /// <summary>
     /// Gets or sets the distance at which a waypoint counts as reached.
     /// </summary>
     public int WaypointArrivalRadius { get; set; } = 2;

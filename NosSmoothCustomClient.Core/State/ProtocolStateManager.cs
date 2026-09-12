@@ -64,6 +64,7 @@ public sealed class ProtocolStateManager
     private long _maxMp;
 
     private long _ownCharacterId = -1;
+    private int _currentMapId = -1;
     private int _waypointIndex;
 
     private long _lastHpPotionStamp;
@@ -114,6 +115,9 @@ public sealed class ProtocolStateManager
 
     /// <summary>Gets the maximum MP of the character.</summary>
     public long MaxMp => Interlocked.Read(ref _maxMp);
+
+    /// <summary>Gets the map the character is currently on, or -1 while it is not known yet.</summary>
+    public int CurrentMapId => Volatile.Read(ref _currentMapId);
 
     /// <summary>Gets the network id of the controlled character, or -1 when it is not known yet.</summary>
     public long OwnCharacterId => Interlocked.Read(ref _ownCharacterId);
@@ -329,6 +333,30 @@ public sealed class ProtocolStateManager
     }
 
     /// <summary>
+    /// Records which map the character is on.
+    /// </summary>
+    /// <param name="mapId">The map id.</param>
+    /// <returns>True when this is a different map than the one before.</returns>
+    /// <remarks>
+    /// A map change invalidates everything positional at once: the entity table describes monsters
+    /// that are no longer anywhere near us, and the target sits on a map we have left. Clearing both
+    /// here rather than leaving it to each caller is what stops the bot swinging at a ghost it can
+    /// never reach after a teleport.
+    /// </remarks>
+    public bool EnterMap(int mapId)
+    {
+        var previous = Interlocked.Exchange(ref _currentMapId, mapId);
+        if (previous == mapId)
+        {
+            return false;
+        }
+
+        ForgetAllEntities();
+        ClearTarget();
+        return true;
+    }
+
+    /// <summary>
     /// Records the vital signs of the locked entity. Ignores updates for anything else.
     /// </summary>
     /// <param name="entityId">The entity the update is about.</param>
@@ -477,7 +505,7 @@ public sealed class ProtocolStateManager
             ? $"#{t.EntityId} ({t.HpPercentage}%)"
             : "none";
 
-        return $"pos={Position} hp={CurrentHp}/{MaxHp} mp={CurrentMp}/{MaxMp} " +
+        return $"map={CurrentMapId} pos={Position} hp={CurrentHp}/{MaxHp} mp={CurrentMp}/{MaxMp} " +
                $"target={targetText} waypoint={CurrentWaypoint} entities={_entities.Count}";
     }
 

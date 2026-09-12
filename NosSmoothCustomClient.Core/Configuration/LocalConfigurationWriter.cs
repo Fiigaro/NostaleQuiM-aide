@@ -62,7 +62,11 @@ public static class LocalConfigurationWriter
                         w.Y,
                         w.ClickX,
                         w.ClickY
-                    })
+                    }),
+
+                    // The route's click points only mean anything on the minimap they were recorded
+                    // against, so the map travels with them.
+                    options.RouteMapId
                 }
             };
 

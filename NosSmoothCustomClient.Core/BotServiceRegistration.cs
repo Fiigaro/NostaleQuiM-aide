@@ -99,6 +99,7 @@ public static class BotServiceRegistration
         services.AddPacketResponder<EntitySpawnResponder>();
         services.AddPacketResponder<TargetHpResponder>();
         services.AddPacketResponder<PositionTrackingResponder>();
+        services.AddPacketResponder<MapResponder>();
         services.AddPacketResponder<SkillResponder>();
         services.AddPacketResponder<BuffResponder>();
         services.AddPacketResponder<QuiMStatResponder>();

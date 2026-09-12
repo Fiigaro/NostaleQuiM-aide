@@ -53,8 +53,11 @@ public sealed class SkillRotation
     private readonly Dictionary<short, DateTimeOffset> _readyAt = new();
 
     // The skill whose key was pressed and which is still waiting for the server to confirm it. At
-    // most one: the loop dispatches a single action per tick and the keyboard is serialized.
+    // most one: the loop dispatches a single action per tick and the keyboard is serialized. It
+    // expires with the confirmation window, so a cast the server never answers for cannot leave the
+    // rotation waiting forever.
     private short? _pendingCastId;
+    private DateTimeOffset _pendingUntil;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SkillRotation"/> class.
@@ -131,9 +134,50 @@ public sealed class SkillRotation
     {
         lock (_sync)
         {
-            _readyAt[skill.CastId] = DateTimeOffset.UtcNow + _options.SkillConfirmationWindow;
+            _pendingUntil = DateTimeOffset.UtcNow + _options.SkillConfirmationWindow;
+            _readyAt[skill.CastId] = _pendingUntil;
             _pendingCastId = skill.CastId;
         }
+    }
+
+    /// <summary>
+    /// Gets the skill whose key was pressed and which the server has not answered for yet.
+    /// </summary>
+    public short? PendingCastId
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return DateTimeOffset.UtcNow < _pendingUntil ? _pendingCastId : null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Confirms whatever press is outstanding, for a cast the server named in a way we cannot map.
+    /// </summary>
+    /// <param name="castId">The slot that was confirmed.</param>
+    /// <returns>True when a press was outstanding and has now been confirmed.</returns>
+    /// <remarks>
+    /// The fallback for a session that never saw a <c>ski</c>, so the skill bar is unknown. Only one
+    /// press is ever outstanding and the loop presses nothing else while it is, so an unmapped skill
+    /// cast by us can only be that one.
+    /// </remarks>
+    public bool TryConfirmPending(out short castId)
+    {
+        lock (_sync)
+        {
+            if (_pendingCastId is not { } pending || DateTimeOffset.UtcNow >= _pendingUntil)
+            {
+                castId = 0;
+                return false;
+            }
+
+            castId = pending;
+        }
+
+        return ConfirmCast(castId);
     }
 
     /// <summary>
@@ -267,7 +311,7 @@ public sealed class SkillRotation
                     skill.MpCost,
                     remaining,
                     skill.MpCost <= currentMp,
-                    _pendingCastId == skill.CastId
+                    _pendingCastId == skill.CastId && now < _pendingUntil
                 ));
             }
         }

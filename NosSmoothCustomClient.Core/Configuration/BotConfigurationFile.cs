@@ -63,6 +63,9 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets the patrol path.</summary>
     public List<WaypointEntry>? Waypoints { get; set; }
 
+    /// <summary>Gets or sets the map the patrol route was recorded on.</summary>
+    public int? RouteMapId { get; set; }
+
     /// <summary>Gets or sets the attack rotation, in priority order.</summary>
     public List<SkillEntry>? Skills { get; set; }
 
@@ -177,6 +180,7 @@ public sealed class BotConfigurationFile
         Set(file.EngagementRadius, v => options.EngagementRadius = v, "EngagementRadius", applied);
         Set(file.MaxStepDistance, v => options.MaxStepDistance = v, "MaxStepDistance", applied);
         Set(file.WaypointArrivalRadius, v => options.WaypointArrivalRadius = v, "WaypointArrivalRadius", applied);
+        Set(file.RouteMapId, v => options.RouteMapId = v, "RouteMapId", applied);
         Set(file.WalkSpeed, v => options.WalkSpeed = v, "WalkSpeed", applied);
         Set(file.PotionCooldownSeconds, v => options.PotionCooldown = TimeSpan.FromSeconds(v), "PotionCooldown", applied);
         Set(file.AttackIntervalMs, v => options.AttackInterval = TimeSpan.FromMilliseconds(v), "AttackInterval", applied);

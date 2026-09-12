@@ -50,6 +50,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _waypoint = Mono();
     private readonly TextBlock _target = Mono();
     private readonly TextBlock _entities = Mono();
+    private readonly TextBlock _map = Mono();
     private readonly StackPanel _skills = new() { Spacing = 4 };
     private readonly StackPanel _buffPanel = new() { Spacing = 4 };
     private readonly Button _save = new() { Content = "Enregistrer les réglages", Height = 30 };
@@ -223,6 +224,7 @@ public sealed class MainWindow : Window
         _target.Foreground = _state.HasLiveTarget ? Ready : Muted;
 
         _entities.Text = _state.KnownEntities.Count.ToString();
+        RefreshMap();
 
         if (_input is null)
         {
@@ -262,6 +264,30 @@ public sealed class MainWindow : Window
         RefreshBuffs();
         RefreshRoute();
         RefreshLog();
+    }
+
+    private void RefreshMap()
+    {
+        var mapId = _state.CurrentMapId;
+
+        if (mapId < 0)
+        {
+            _map.Text = "inconnue";
+            _map.Foreground = Muted;
+            return;
+        }
+
+        // The route's map is the thing that decides whether navigation will run here, so it belongs
+        // next to the map rather than buried in the log.
+        if (_options.RouteMapId is not { } routeMap)
+        {
+            _map.Text = mapId.ToString();
+            _map.Foreground = Ink;
+            return;
+        }
+
+        _map.Text = routeMap == mapId ? $"{mapId}   (route)" : $"{mapId}   (route sur {routeMap})";
+        _map.Foreground = routeMap == mapId ? Ready : Blocked;
     }
 
     private void RefreshSkills()
@@ -442,14 +468,15 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
             Margin = new Thickness(0, 2, 0, 0)
         };
 
-        AddCell(grid, 0, 0, "Position", _position);
-        AddCell(grid, 0, 2, "Cible", _target);
-        AddCell(grid, 1, 0, "Waypoint", _waypoint);
+        AddCell(grid, 0, 0, "Carte", _map);
+        AddCell(grid, 0, 2, "Position", _position);
+        AddCell(grid, 1, 0, "Cible", _target);
         AddCell(grid, 1, 2, "Entités", _entities);
+        AddCell(grid, 2, 0, "Waypoint", _waypoint);
 
         return Section("État", grid);
     }
