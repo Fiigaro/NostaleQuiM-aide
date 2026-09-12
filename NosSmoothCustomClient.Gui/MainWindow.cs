@@ -70,7 +70,18 @@ public sealed class MainWindow : Window
     private readonly TextBox _keyLoot = KeyBox();
     private readonly TextBox _keyHp = KeyBox();
     private readonly TextBox _keyMp = KeyBox();
-    private readonly NumericUpDown _pressDelay = new() { Minimum = 0, Maximum = 2000, Increment = 10, Width = 96, Height = 26, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+    private readonly NumericUpDown _pressDelay = new()
+    {
+        Minimum = 0,
+        Maximum = 2000,
+        Increment = 10,
+        Width = 132,
+        Height = 34,
+        FontSize = 15,
+        Padding = new Thickness(6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalContentAlignment = HorizontalAlignment.Center
+    };
     private readonly SelectableTextBlock _log = new()
     {
         FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
@@ -118,9 +129,9 @@ public sealed class MainWindow : Window
         _mode = mode;
 
         Title = "NosSmoothCustomClient";
-        Width = 760;
-        Height = 680;
-        MinWidth = 520;
+        Width = 880;
+        Height = 760;
+        MinWidth = 640;
         MinHeight = 460;
         Background = new SolidColorBrush(Color.Parse("#141517"));
 
@@ -343,7 +354,7 @@ public sealed class MainWindow : Window
         grid.Children.Add(Place(Section("Touches", BuildKeySection()), 3));
         grid.Children.Add(Place(Section("Rotation", _skills), 4));
         grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 5));
-        grid.Children.Add(Place(Section("Route", BuildRouteSection()), 6));
+        grid.Children.Add(Place(Section("Route de patrouille", BuildRouteSection()), 6));
         grid.Children.Add(Place(Section("Journal", _logScroll), 7));
 
         return new ScrollViewer
@@ -422,7 +433,7 @@ public sealed class MainWindow : Window
                 IsChecked = skill.Enabled,
                 Content = skill.Name,
                 Foreground = Ink,
-                FontSize = 12,
+                FontSize = 13,
                 VerticalAlignment = VerticalAlignment.Center
             };
 
@@ -446,7 +457,7 @@ public sealed class MainWindow : Window
                 MarkDirty();
             };
 
-            row.Status = new TextBlock { Text = "-", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+            row.Status = new TextBlock { Text = "-", Foreground = Muted, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
             row.Dot = Dot();
 
             _skillRows.Add(row);
@@ -467,7 +478,7 @@ public sealed class MainWindow : Window
                 IsChecked = buff.Enabled,
                 Content = buff.Name,
                 Foreground = Ink,
-                FontSize = 12,
+                FontSize = 13,
                 VerticalAlignment = VerticalAlignment.Center
             };
 
@@ -516,13 +527,13 @@ public sealed class MainWindow : Window
 
     private static Border BuildRow(CheckBox enabled, string? key, NumericUpDown seconds, TextBlock status, Border dot)
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,44,96,74,14") };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,60,150,96,18") };
 
         var keyLabel = new TextBlock
         {
-            Text = string.IsNullOrWhiteSpace(key) ? "-" : key,
-            Foreground = string.IsNullOrWhiteSpace(key) ? Blocked : Muted,
-            FontSize = 12,
+            Text = string.IsNullOrWhiteSpace(key) ? "-" : "touche " + key,
+            Foreground = string.IsNullOrWhiteSpace(key) ? Blocked : Ink,
+            FontSize = 13,
             FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
@@ -542,7 +553,7 @@ public sealed class MainWindow : Window
         return new Border
         {
             Child = grid,
-            Padding = new Thickness(8, 5),
+            Padding = new Thickness(10, 7),
             CornerRadius = new CornerRadius(4),
             Background = new SolidColorBrush(Color.Parse("#26282C"))
         };
@@ -556,11 +567,13 @@ public sealed class MainWindow : Window
             Maximum = 3600,
             Increment = 1,
             FormatString = "0.#",
-            Width = 88,
-            Height = 26,
-            FontSize = 11,
-            Margin = new Thickness(0, 0, 10, 0),
-            VerticalAlignment = VerticalAlignment.Center
+            Width = 132,
+            Height = 34,
+            FontSize = 15,
+            Padding = new Thickness(6, 0),
+            Margin = new Thickness(0, 0, 12, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center
         };
 
     private static Border Dot()
@@ -616,13 +629,14 @@ public sealed class MainWindow : Window
     private static TextBox KeyBox()
         => new()
         {
-            Width = 54,
-            Height = 26,
-            FontSize = 12,
+            Width = 78,
+            Height = 34,
+            FontSize = 15,
             MaxLength = 5,
             FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
             VerticalAlignment = VerticalAlignment.Center,
-            VerticalContentAlignment = VerticalAlignment.Center
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center
         };
 
     private void BuildKeyFields()
@@ -707,6 +721,28 @@ public sealed class MainWindow : Window
     private Control BuildRouteSection()
     {
         var panel = new StackPanel { Spacing = 10 };
+
+        // The section needed explaining in the window rather than only in the docs: a waypoint
+        // carries two coordinate systems for reasons that are not obvious from a list of numbers.
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Le trajet parcouru quand il n'y a plus rien à taper. Le bot clique sur la minimap "
+                   + "pour aller au point suivant, et sait qu'il est arrivé grâce à sa position réelle.",
+            Foreground = Muted,
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 700
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Ajouter un point : place ton personnage à l'endroit voulu → arme F9 → vise ce même "
+                   + "endroit sur la minimap dans NosTale → presse F9.",
+            Foreground = Ink,
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 700
+        });
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         actions.Children.Add(_arm);
