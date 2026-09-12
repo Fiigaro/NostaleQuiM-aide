@@ -1,3 +1,4 @@
+using NosSmoothCustomClient.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -29,6 +30,11 @@ public static class Program
         {
             Console.WriteLine(CommandLine.Usage);
             return 0;
+        }
+
+        if (args.Contains("--check-combat", StringComparer.OrdinalIgnoreCase))
+        {
+            return await CombatSelfCheck.RunAsync().ConfigureAwait(false);
         }
 
         var cli = CommandLine.Parse(args);

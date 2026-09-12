@@ -70,6 +70,10 @@ public sealed class ProtocolStateManager
     private long _lastMpPotionStamp;
     private long _lastAttackStamp;
     private long _lastWalkStamp;
+    private long _lastSearchStamp;
+
+    // When the server last said anything about the target. Zero means "never".
+    private long _lastTargetStamp;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ProtocolStateManager"/> class.
@@ -319,6 +323,7 @@ public sealed class ProtocolStateManager
             }
 
             _target = new TargetSnapshot(entityId, entityType, -1, hpPercentage);
+            Interlocked.Exchange(ref _lastTargetStamp, Stopwatch.GetTimestamp());
             return true;
         }
     }
@@ -345,6 +350,7 @@ public sealed class ProtocolStateManager
             }
 
             _target = target with { Hp = hp, HpPercentage = hpPercentage };
+            Interlocked.Exchange(ref _lastTargetStamp, Stopwatch.GetTimestamp());
             return true;
         }
     }
@@ -412,6 +418,36 @@ public sealed class ProtocolStateManager
     /// <returns>True when the caller may dispatch an attack frame.</returns>
     public bool TryTakeAttackGate(TimeSpan cooldown)
         => TryTakeGate(ref _lastAttackStamp, cooldown);
+
+    /// <summary>Takes the target search gate if its cooldown has elapsed.</summary>
+    /// <param name="cooldown">The cooldown.</param>
+    /// <returns>True when the caller may probe for a target.</returns>
+    public bool TryTakeSearchGate(TimeSpan cooldown)
+        => TryTakeGate(ref _lastSearchStamp, cooldown);
+
+    /// <summary>
+    /// Reports whether the server has stopped mentioning the current target.
+    /// </summary>
+    /// <param name="after">How long silence has to last to count.</param>
+    /// <returns>True when a target is held but has gone quiet for longer than that.</returns>
+    /// <remarks>
+    /// Needed because a lock can outlive the fight without anything announcing it: the monster
+    /// walks out of range, another player kills it, or the selection was never really made. None of
+    /// those produce a death packet, so only the silence gives it away.
+    /// </remarks>
+    public bool TargetWentQuiet(TimeSpan after)
+    {
+        lock (_targetSync)
+        {
+            if (_target is null)
+            {
+                return false;
+            }
+        }
+
+        var last = Interlocked.Read(ref _lastTargetStamp);
+        return last != 0 && Stopwatch.GetElapsedTime(last, Stopwatch.GetTimestamp()) > after;
+    }
 
     /// <summary>Takes the walk gate if its cooldown has elapsed.</summary>
     /// <param name="cooldown">The cooldown.</param>

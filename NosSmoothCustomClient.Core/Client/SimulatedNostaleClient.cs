@@ -136,15 +136,31 @@ public sealed class SimulatedNostaleClient : INostaleClient
         return Task.FromResult(Result.FromSuccess());
     }
 
+    // A synthetic skill bar. The cast id is the slot, so VNum 9000 + slot is the skill sitting
+    // there - which is all the confirmation path needs to turn su's VNum back into a cast id.
+    private const int SkillVNumBase = 9000;
+
     private void Seed()
     {
         Enqueue(new AtPacket(OwnCharacterId, MapId, (short)_playerX, (short)_playerY));
         EnqueueStat();
+        EnqueueSkillBar();
 
         // Exercises the custom generated converter end to end.
         Enqueue(new QuiMStatPacket(OwnCharacterId, 1, 4200, "NosSmoothCustomClient"));
 
         SpawnMonster(55, 52);
+    }
+
+    private void EnqueueSkillBar()
+    {
+        // Ten slots: the whole quick bar, so any configured cast id resolves without the simulator
+        // having to know what is configured.
+        var bar = Enumerable.Range(0, 10)
+            .Select(slot => new SkiSubPacket(SkillVNumBase + slot, 0))
+            .ToArray();
+
+        Enqueue(new SkiPacket(bar[0].SkillVNum, bar[0].SkillVNum, 0, bar));
     }
 
     private void React(string packetString)
@@ -185,10 +201,15 @@ public sealed class SimulatedNostaleClient : INostaleClient
 
         // Charge the cast and promise an sr once its cooldown elapses, so the rotation is driven
         // by the server signal exactly as it would be in game.
+        int? castVNum = null;
         if (short.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var castId) && castId != 0)
         {
             _playerMp = Math.Max(0, _playerMp - 40);
             _deferred.Enqueue((DateTimeOffset.UtcNow.AddSeconds(4), new SrPacket(castId)));
+
+            // Name the skill in su, the way a real server does. Without it there is no way to tell
+            // a cast that happened from a key press the client threw away.
+            castVNum = SkillVNumBase + castId;
         }
 
         const int damage = 250;
@@ -201,8 +222,8 @@ public sealed class SimulatedNostaleClient : INostaleClient
             CasterEntityId: OwnCharacterId,
             TargetEntityType: EntityType.Monster,
             TargetEntityId: _monsterId,
-            SkillVNum: 0,
-            SkillCooldown: 0,
+            SkillVNum: castVNum,
+            SkillCooldown: 40,
             AttackAnimation: 11,
             SkillEffect: 0,
             PositionX: (short)_monsterX,

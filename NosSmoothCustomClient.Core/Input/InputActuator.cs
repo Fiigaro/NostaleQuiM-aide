@@ -41,6 +41,9 @@ public sealed class InputActuator : IBotActuator
     public bool SupportsApproach => false;
 
     /// <inheritdoc />
+    public bool SelectsTargetItself => true;
+
+    /// <inheritdoc />
     public Task<bool> ApproachAsync(int x, int y, CancellationToken ct = default)
         => Task.FromResult(false);
 

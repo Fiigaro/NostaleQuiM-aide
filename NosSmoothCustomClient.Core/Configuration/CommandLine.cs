@@ -108,6 +108,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
                                background, to find out whether that works at all. Exits after.
              --key <k>         With --test-input, send only this key (e.g. space, 1, r),
                                three times, instead of the whole sequence.
+             --check-combat    Drive the decision matrix through a few scripted situations and
+                               report what it decided. Needs no game and no network. Exits after.
            """;
 
     private static bool Has(string[] args, string name)

@@ -289,6 +289,14 @@ public sealed class MainWindow : Window
                 continue;
             }
 
+            // Worth distinguishing: a reserved skill is one whose key was pressed and which the
+            // server has not confirmed. If it stays there, the client is refusing the cast.
+            if (status.AwaitingConfirmation)
+            {
+                Set(row.Status, row.Dot, "envoyé…", Cooling);
+                continue;
+            }
+
             if (status.Remaining > TimeSpan.Zero)
             {
                 Set(row.Status, row.Dot, $"{status.Remaining.TotalSeconds:0.0}s", Cooling);

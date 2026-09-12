@@ -12,6 +12,7 @@ namespace NosSmoothCustomClient.State;
 /// <param name="MpCost">The MP cost.</param>
 /// <param name="Remaining">Time left on the cooldown, zero when ready.</param>
 /// <param name="AffordableNow">Whether the character can currently pay the MP cost.</param>
+/// <param name="AwaitingConfirmation">Whether the key was pressed and the server has not confirmed yet.</param>
 public readonly record struct SkillStatus
 (
     short CastId,
@@ -19,7 +20,8 @@ public readonly record struct SkillStatus
     bool Enabled,
     long MpCost,
     TimeSpan Remaining,
-    bool AffordableNow
+    bool AffordableNow,
+    bool AwaitingConfirmation = false
 )
 {
     /// <summary>Gets a value indicating whether the skill could be cast right now.</summary>
@@ -35,6 +37,13 @@ public readonly record struct SkillStatus
 /// safety net, so the rotation still behaves correctly if <c>sr</c> never arrives or numbers its
 /// skills differently than the cast ids - in that case the timer alone governs and the rotation
 /// degrades to a plain cooldown scheduler rather than misfiring.
+///
+/// Driving the client by keyboard adds a step that does not exist when sending packets: a key press
+/// is a request, not a cast. The client drops it silently with nothing selected, out of range, or
+/// while the game's own cooldown runs. Starting the full cooldown on the press would therefore
+/// retire a skill that never fired - the bot would stand there believing it had just used
+/// everything. So a press only reserves the skill briefly, and the cooldown proper starts when
+/// <c>su</c> confirms the cast actually happened.
 /// </remarks>
 public sealed class SkillRotation
 {
@@ -42,6 +51,10 @@ public sealed class SkillRotation
     private readonly ILogger<SkillRotation> _logger;
     private readonly object _sync = new();
     private readonly Dictionary<short, DateTimeOffset> _readyAt = new();
+
+    // The skill whose key was pressed and which is still waiting for the server to confirm it. At
+    // most one: the loop dispatches a single action per tick and the keyboard is serialized.
+    private short? _pendingCastId;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SkillRotation"/> class.
@@ -90,15 +103,71 @@ public sealed class SkillRotation
     }
 
     /// <summary>
-    /// Starts the cooldown of a skill that was just cast.
+    /// Starts the full cooldown of a skill that is known to have been cast.
     /// </summary>
     /// <param name="skill">The skill.</param>
+    /// <remarks>
+    /// For the packet path, where the cast is the packet and there is nothing to confirm.
+    /// </remarks>
     public void MarkCast(SkillDefinition skill)
     {
         lock (_sync)
         {
             _readyAt[skill.CastId] = DateTimeOffset.UtcNow + skill.EffectiveCooldown;
+            _pendingCastId = null;
         }
+    }
+
+    /// <summary>
+    /// Records that a skill's key was pressed, reserving it only until the server answers.
+    /// </summary>
+    /// <param name="skill">The skill.</param>
+    /// <remarks>
+    /// The reservation is deliberately short. If the cast went through, <see cref="ConfirmCast"/>
+    /// replaces it with the real cooldown; if the client refused the key, the reservation lapses and
+    /// the skill is tried again, which is the correct behaviour for something that never fired.
+    /// </remarks>
+    public void MarkPressed(SkillDefinition skill)
+    {
+        lock (_sync)
+        {
+            _readyAt[skill.CastId] = DateTimeOffset.UtcNow + _options.SkillConfirmationWindow;
+            _pendingCastId = skill.CastId;
+        }
+    }
+
+    /// <summary>
+    /// Starts the real cooldown of a skill the server reported as cast.
+    /// </summary>
+    /// <param name="castId">The cast id, resolved from the VNum in <c>su</c>.</param>
+    /// <returns>True when the id matched a rotation entry.</returns>
+    public bool ConfirmCast(short castId)
+    {
+        SkillDefinition? skill;
+
+        lock (_sync)
+        {
+            if (!_readyAt.ContainsKey(castId))
+            {
+                return false;
+            }
+
+            skill = _options.Skills.FirstOrDefault(s => s.CastId == castId);
+            if (skill is null)
+            {
+                return false;
+            }
+
+            _readyAt[castId] = DateTimeOffset.UtcNow + skill.EffectiveCooldown;
+
+            if (_pendingCastId == castId)
+            {
+                _pendingCastId = null;
+            }
+        }
+
+        _logger.LogDebug("su -> skill {Name} confirmed cast, cooldown {Seconds:0.#}s.", skill.Name, skill.EffectiveCooldown.TotalSeconds);
+        return true;
     }
 
     /// <summary>
@@ -116,6 +185,11 @@ public sealed class SkillRotation
             }
 
             _readyAt[castId] = DateTimeOffset.MinValue;
+
+            if (_pendingCastId == castId)
+            {
+                _pendingCastId = null;
+            }
         }
 
         _logger.LogDebug("sr -> skill {CastId} is off cooldown.", castId);
@@ -142,6 +216,11 @@ public sealed class SkillRotation
             }
 
             _readyAt[castId] = DateTimeOffset.MinValue;
+
+            if (_pendingCastId == castId)
+            {
+                _pendingCastId = null;
+            }
         }
 
         return true;
@@ -158,6 +237,8 @@ public sealed class SkillRotation
             {
                 _readyAt[castId] = DateTimeOffset.MinValue;
             }
+
+            _pendingCastId = null;
         }
     }
 
@@ -185,7 +266,8 @@ public sealed class SkillRotation
                     skill.Enabled,
                     skill.MpCost,
                     remaining,
-                    skill.MpCost <= currentMp
+                    skill.MpCost <= currentMp,
+                    _pendingCastId == skill.CastId
                 ));
             }
         }

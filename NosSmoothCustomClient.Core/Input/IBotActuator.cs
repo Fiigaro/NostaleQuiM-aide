@@ -25,6 +25,17 @@ public interface IBotActuator
     /// </remarks>
     bool SupportsApproach { get; }
 
+    /// <summary>
+    /// Gets a value indicating whether the game picks the target itself.
+    /// </summary>
+    /// <remarks>
+    /// True for the keyboard, where the attack key selects the nearest monster: the client can see
+    /// the whole screen, so asking it is strictly better than scanning our own entity table, which
+    /// only knows about monsters whose spawn packet we happened to capture. False when the target
+    /// has to be named by id in a packet, where the scan is the only way to know what to name.
+    /// </remarks>
+    bool SelectsTargetItself { get; }
+
     /// <summary>Takes one step towards a cell.</summary>
     /// <param name="x">Destination X.</param>
     /// <param name="y">Destination Y.</param>

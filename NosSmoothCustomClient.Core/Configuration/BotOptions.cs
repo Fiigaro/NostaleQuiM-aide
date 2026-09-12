@@ -101,6 +101,37 @@ public sealed class BotOptions
     public TimeSpan AttackInterval { get; set; } = TimeSpan.FromMilliseconds(900);
 
     /// <summary>
+    /// Gets or sets how often the attack key is pressed while no target is confirmed.
+    /// </summary>
+    /// <remarks>
+    /// Driving the client by keyboard, the attack key is also the question "is there anything to
+    /// fight?" - it selects the nearest monster when there is one and does nothing when there is
+    /// not. Asking is cheap, so this only needs to be slow enough not to spam the client.
+    /// </remarks>
+    public TimeSpan SearchInterval { get; set; } = TimeSpan.FromMilliseconds(1200);
+
+    /// <summary>
+    /// Gets or sets how long a skill waits for the server to confirm it actually went off.
+    /// </summary>
+    /// <remarks>
+    /// Pressing a key is not casting. The client refuses a skill with nothing selected, out of
+    /// range, or still on the game's own cooldown, and says nothing about it. So a press only
+    /// reserves the skill for this long; the real cooldown starts when <c>su</c> confirms the cast.
+    /// If no confirmation arrives the skill goes back to ready, because nothing happened.
+    /// </remarks>
+    public TimeSpan SkillConfirmationWindow { get; set; } = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>
+    /// Gets or sets how long a target may go unmentioned by the server before it is dropped.
+    /// </summary>
+    /// <remarks>
+    /// A fight produces a steady stream of <c>su</c> and <c>st</c>. Silence means the target is
+    /// gone - out of range, lost, or killed by someone else - and holding the lock would keep the
+    /// bot swinging at nothing instead of looking for the next monster.
+    /// </remarks>
+    public TimeSpan TargetStaleAfter { get; set; } = TimeSpan.FromSeconds(6);
+
+    /// <summary>
     /// Gets or sets the movement speed written into the outbound walk packet.
     /// </summary>
     public short WalkSpeed { get; set; } = 11;

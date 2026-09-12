@@ -98,7 +98,17 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         _logger.LogInformation("Orchestration loop stopped. Final state: {State}", _state.Describe());
     }
 
-    private async Task TickAsync(CancellationToken ct)
+    /// <summary>
+    /// Resolves exactly one priority.
+    /// </summary>
+    /// <param name="ct">The cancellation token.</param>
+    /// <returns>A task that completes when the decision has been dispatched.</returns>
+    /// <remarks>
+    /// Public so a test can drive the decision matrix one step at a time. Running the service and
+    /// watching what comes out would test the same logic through a clock, which turns assertions
+    /// about behaviour into assertions about timing.
+    /// </remarks>
+    public async Task TickAsync(CancellationToken ct)
     {
         if (!_controller.IsRunning)
         {
@@ -177,6 +187,88 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     /// Priority 3 - engagement. Holds position and works the rotation while a target is alive.
     /// </summary>
     private async Task<bool> TryEngageAsync(CancellationToken ct)
+    {
+        // A lock can outlive the fight in silence - the monster wanders off, someone else kills it,
+        // or the selection never really happened. Dropping a target the server has stopped talking
+        // about is what stops the bot swinging at nothing.
+        if (_state.TargetWentQuiet(_options.TargetStaleAfter))
+        {
+            _logger.LogInformation
+            (
+                "Target #{EntityId} has gone quiet for over {Seconds:0.#}s; dropping the lock.",
+                _state.TargetEntityId,
+                _options.TargetStaleAfter.TotalSeconds
+            );
+
+            _state.ClearTarget();
+        }
+
+        return _actuator.SelectsTargetItself
+            ? await EngageByKeyAsync(ct).ConfigureAwait(false)
+            : await EngageByPacketAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Engagement when the game does the targeting: the attack key both asks and acts.
+    /// </summary>
+    /// <remarks>
+    /// This deliberately does not consult our own entity table. That table is built from the spawn
+    /// packets we captured, so every monster already on screen when the capture started is invisible
+    /// to us and perfectly visible to the player - gating the attack on it means standing next to a
+    /// monster doing nothing. The client knows what is there; pressing the key asks it.
+    ///
+    /// It also means skills are only ever pressed during a fight the server has confirmed, which is
+    /// what stops a refused cast from starting a cooldown on a skill that never went off.
+    /// </remarks>
+    private async Task<bool> EngageByKeyAsync(CancellationToken ct)
+    {
+        if (_state.Target is not { IsAlive: true } target)
+        {
+            if (!_state.TryTakeSearchGate(_options.SearchInterval))
+            {
+                // Between probes there is nothing to fight and nothing to ask, so the tick belongs
+                // to navigation.
+                return false;
+            }
+
+            LogPriority(3, "engagement: no target, asking the game with the attack key");
+            await _actuator.TargetNearestAsync(ct).ConfigureAwait(false);
+
+            // Claim the tick rather than falling through to navigation. The answer to the probe
+            // arrives as a packet a moment later, and clicking the minimap in the meantime would
+            // walk away from the monster we just told the character to attack.
+            return true;
+        }
+
+        if (!_state.TryTakeAttackGate(_options.AttackInterval))
+        {
+            return true;
+        }
+
+        var skill = _rotation.SelectNext(_state.CurrentMp);
+
+        LogPriority
+        (
+            3,
+            "engagement: #{0} at {1}% HP -> {2}",
+            target.EntityId,
+            target.HpPercentage,
+            skill?.Name ?? "basic attack"
+        );
+
+        if (await _actuator.CastSkillAsync(skill, target.EntityId, ct).ConfigureAwait(false) && skill is not null)
+        {
+            // Pressed, not cast. The full cooldown waits for the server to confirm it went off.
+            _rotation.MarkPressed(skill);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Engagement when the target has to be named in a packet, so it has to be found first.
+    /// </summary>
+    private async Task<bool> EngageByPacketAsync(CancellationToken ct)
     {
         var justAcquired = false;
 

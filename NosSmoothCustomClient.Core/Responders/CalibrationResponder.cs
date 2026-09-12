@@ -78,8 +78,9 @@ public sealed class CalibrationResponder :
             return Task.FromResult(Result.FromSuccess());
         }
 
+        // SkillResponder owns the bar; calibration only reports it, so the mapping is maintained in
+        // every mode and not just while calibrating.
         var vnums = skills.Select(s => s.SkillVNum).ToArray();
-        _skillBar.Replace(vnums);
 
         var lines = new List<string>(vnums.Length);
         for (var castId = 0; castId < vnums.Length; castId++)
