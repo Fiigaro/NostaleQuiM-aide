@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace NosSmoothCustomClient.Client;
 
@@ -12,6 +13,7 @@ namespace NosSmoothCustomClient.Client;
 /// <param name="Reason">Why.</param>
 /// <param name="WindowTitle">Its main window title, when it has one.</param>
 /// <param name="StartedAt">When it started, when readable.</param>
+/// <param name="Bounds">Where its window sits on screen, when it has one.</param>
 public sealed record ProcessVerdict
 (
     Process Process,
@@ -19,7 +21,8 @@ public sealed record ProcessVerdict
     bool IsClient,
     string Reason,
     string? WindowTitle = null,
-    DateTime? StartedAt = null
+    DateTime? StartedAt = null,
+    string? Bounds = null
 )
 {
     /// <summary>Gets a value indicating whether the process owns a visible main window.</summary>
@@ -30,7 +33,12 @@ public sealed record ProcessVerdict
     {
         var window = HasWindow ? $"\"{WindowTitle}\"" : "(no window)";
         var started = StartedAt is { } at ? at.ToString("HH:mm:ss") : "?";
-        return $"{Process.ProcessName,-14} pid {Process.Id,-7} started {started}  {window}";
+
+        // Two clients of the same build share a title and a path; where the window sits is what
+        // actually tells them apart on screen.
+        var where = Bounds is { Length: > 0 } b ? $"  at {b}" : string.Empty;
+
+        return $"{Process.ProcessName,-14} pid {Process.Id,-7} started {started}  {window}{where}";
     }
 }
 
@@ -117,7 +125,8 @@ public static class NosTaleProcessScanner
             hasGameData,
             hasGameData ? "NostaleData found next to the executable" : "no NostaleData directory",
             ReadWindowTitle(process),
-            ReadStartTime(process)
+            ReadStartTime(process),
+            ReadBounds(process)
         );
     }
 
@@ -135,6 +144,60 @@ public static class NosTaleProcessScanner
         }
     }
 
+    private static string? ReadBounds(Process process)
+    {
+        try
+        {
+            var handle = process.MainWindowHandle;
+            if (handle == IntPtr.Zero || !GetWindowRect(handle, out var rect))
+            {
+                return null;
+            }
+
+            return $"({rect.Left},{rect.Top}) {rect.Right - rect.Left}x{rect.Bottom - rect.Top}";
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Flashes a client's window so it can be told apart from its siblings.
+    /// </summary>
+    /// <param name="process">The process whose window to flash.</param>
+    /// <returns>True when the request was accepted.</returns>
+    /// <remarks>
+    /// Flashing rather than raising: bringing a window to the front while the player is in another
+    /// one would disrupt exactly the session being identified.
+    /// </remarks>
+    public static bool Flash(Process process)
+    {
+        try
+        {
+            var handle = process.MainWindowHandle;
+            if (handle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var info = new FlashInfo
+            {
+                Size = (uint)Marshal.SizeOf<FlashInfo>(),
+                Window = handle,
+                Flags = FlashAll | FlashTimerNoForeground,
+                Count = 6,
+                Timeout = 0
+            };
+
+            return FlashWindowEx(ref info);
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
     private static DateTime? ReadStartTime(Process process)
     {
         try
@@ -145,6 +208,36 @@ public static class NosTaleProcessScanner
         {
             return null;
         }
+    }
+
+    private const uint FlashAll = 0x00000003;
+    private const uint FlashTimerNoForeground = 0x0000000C;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out Rect rect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FlashWindowEx(ref FlashInfo info);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FlashInfo
+    {
+        public uint Size;
+        public IntPtr Window;
+        public uint Flags;
+        public uint Count;
+        public uint Timeout;
     }
 
     private static bool IsSystemDirectory(string directory)

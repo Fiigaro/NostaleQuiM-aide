@@ -15,7 +15,8 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="Play">Whether the bot may actually press keys in the game.</param>
 /// <param name="TestKey">A single key to test, instead of the full sequence.</param>
 /// <param name="RecordWaypoints">Whether to record a patrol route instead of running the bot.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey, bool RecordWaypoints)
+/// <param name="Identify">Whether to flash each client window and exit.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey, bool RecordWaypoints, bool Identify)
 {
     /// <summary>
     /// Parses the arguments.
@@ -47,7 +48,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             Has(args, "--test-input"),
             Has(args, "--play"),
             ReadValue(args, "--key"),
-            Has(args, "--record-waypoints")
+            Has(args, "--record-waypoints"),
+            Has(args, "--identify")
         );
     }
 
@@ -96,6 +98,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
            Diagnostics:
              --list            Print every running process with the reason it was or was not
                                taken for a NosTale client, then exit.
+             --identify        Flash each client window in turn, so you can see which pid is
+                               which when several are running. Exits after.
              --trace           Log every raw packet in both directions. Always on with --pcap.
              --record-waypoints
                                Record a patrol route: stand on a spot, point at it on the

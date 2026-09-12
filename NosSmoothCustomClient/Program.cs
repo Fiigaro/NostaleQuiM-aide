@@ -39,6 +39,15 @@ public static class Program
             return 0;
         }
 
+        if (cli.Identify)
+        {
+            using var identifyLoggers = LoggerFactory.Create(b => b
+                .AddSimpleConsole(o => { o.SingleLine = true; o.TimestampFormat = "HH:mm:ss "; })
+                .SetMinimumLevel(LogLevel.Information));
+
+            return await ProcessIdentifier.RunAsync(identifyLoggers).ConfigureAwait(false);
+        }
+
         if (cli.TestInput)
         {
             using var testLoggers = LoggerFactory.Create(b => b
