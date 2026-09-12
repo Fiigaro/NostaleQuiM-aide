@@ -135,6 +135,21 @@ public sealed class BuffTracker
     }
 
     /// <summary>
+    /// Forgets one buff, so it is treated as lapsed and recast at the next opportunity.
+    /// </summary>
+    /// <param name="buff">The buff.</param>
+    /// <remarks>
+    /// Both clocks are cleared, not just the duration: leaving the cooldown gate standing would
+    /// mark the buff as due and then refuse to cast it, which looks like the bot ignoring the
+    /// request.
+    /// </remarks>
+    public void Reset(BuffDefinition buff)
+    {
+        _expiresAt.TryRemove(buff.TrackingKey, out _);
+        _castableAt.TryRemove(buff.TrackingKey, out _);
+    }
+
+    /// <summary>
     /// Forgets every buff, e.g. after dying or changing map.
     /// </summary>
     public void Reset()

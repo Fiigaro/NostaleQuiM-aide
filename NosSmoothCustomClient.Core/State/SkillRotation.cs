@@ -123,6 +123,31 @@ public sealed class SkillRotation
     }
 
     /// <summary>
+    /// Clears one skill's cooldown.
+    /// </summary>
+    /// <param name="castId">The cast id.</param>
+    /// <returns>True when the id matched a rotation entry.</returns>
+    /// <remarks>
+    /// Editing a cooldown in the window only changes what the next cast will use; the countdown
+    /// already running was started from the old number. Clearing it by hand is what makes a
+    /// corrected value take effect now rather than after the wrong wait.
+    /// </remarks>
+    public bool Reset(short castId)
+    {
+        lock (_sync)
+        {
+            if (!_readyAt.ContainsKey(castId))
+            {
+                return false;
+            }
+
+            _readyAt[castId] = DateTimeOffset.MinValue;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Clears every cooldown, e.g. after leaving combat or changing map.
     /// </summary>
     public void ResetAll()

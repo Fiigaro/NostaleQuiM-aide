@@ -84,6 +84,42 @@ public static class SelfTest
                            || options.Keys.MpPotion == "9";
         }
 
+        // A ↻ must actually clear the engine's cooldown, not merely redraw the row. The loop is
+        // paused for the duration: it casts on its own, so leaving it running would let it re-arm
+        // the cooldown between the click and the assertion and report noise.
+        var controller = services.GetRequiredService<BotController>();
+        var rotation = services.GetRequiredService<SkillRotation>();
+        var buffTracker = services.GetRequiredService<BuffTracker>();
+        var resetButtons = visuals.OfType<Button>()
+            .Where(b => b.Content as string == "\u21BB")
+            .ToList();
+
+        var skillResetWorks = false;
+        var buffResetWorks = false;
+
+        if (resetButtons.Count >= options.Skills.Count + options.Buffs.Count
+            && options.Skills.Count > 0
+            && options.Buffs.Count > 0)
+        {
+            var wasRunning = controller.IsRunning;
+            controller.Pause();
+
+            rotation.MarkCast(options.Skills[0]);
+            var skillWasCooling = rotation.Snapshot(long.MaxValue)[0].Remaining > TimeSpan.Zero;
+            Click(resetButtons[0]);
+            skillResetWorks = skillWasCooling && rotation.Snapshot(long.MaxValue)[0].Remaining == TimeSpan.Zero;
+
+            buffTracker.MarkCast(options.Buffs[0]);
+            var buffWasUp = buffTracker.Snapshot()[0].IsActive;
+            Click(resetButtons[options.Skills.Count]);
+            buffResetWorks = buffWasUp && !buffTracker.Snapshot()[0].IsActive;
+
+            if (wasRunning)
+            {
+                controller.Start();
+            }
+        }
+
         var (savedPath, saveError) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
         var saveWorks = savedPath is not null && File.Exists(savedPath);
         if (savedPath is not null)
@@ -117,6 +153,8 @@ public static class SelfTest
             ("cases à cocher par ligne", boxes.Count >= expectedRows),
             ("champs de durée par ligne", numbers.Count >= expectedRows),
             ("cocher modifie les options en direct", toggleWorks),
+            ("↻ purge le cooldown d'un sort", skillResetWorks),
+            ("↻ fait retomber un buff", buffResetWorks),
             ("enregistrement des réglages", saveWorks),
 
             // Le panneau touches et la route.
@@ -140,5 +178,11 @@ public static class SelfTest
         Console.WriteLine($"{checks.Length - failed}/{checks.Length} verifications passees, {visuals.Count} controles dans l'arbre visuel.");
 
         return failed == 0 ? 0 : 3;
+    }
+
+    private static void Click(Button button)
+    {
+        button.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
     }
 }

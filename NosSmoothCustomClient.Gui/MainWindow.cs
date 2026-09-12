@@ -53,6 +53,8 @@ public sealed class MainWindow : Window
     private readonly StackPanel _skills = new() { Spacing = 4 };
     private readonly StackPanel _buffPanel = new() { Spacing = 4 };
     private readonly Button _save = new() { Content = "Enregistrer les réglages", Height = 30 };
+    private readonly Button _resetSkills = new() { Content = "Remettre tous les sorts à zéro", Height = 30 };
+    private readonly Button _resetBuffs = new() { Content = "Remettre tous les buffs à zéro", Height = 30 };
     private readonly TextBlock _saveStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly List<SkillRow> _skillRows = new();
     private readonly List<BuffRow> _buffRows = new();
@@ -151,6 +153,8 @@ public sealed class MainWindow : Window
         _logScroll.Height = 190;
 
         _save.Click += (_, _) => SaveSettings();
+        _resetSkills.Click += (_, _) => { _rotation.ResetAll(); Refresh(); };
+        _resetBuffs.Click += (_, _) => { _buffs.Reset(); Refresh(); };
         _live.Click += (_, _) => ToggleLive();
         _arm.Click += (_, _) => ToggleArm();
         _clearRoute.Click += (_, _) => { _recorder?.Clear(); RefreshRoute(); };
@@ -374,7 +378,7 @@ public sealed class MainWindow : Window
         grid.Children.Add(Place(BuildVitals(), 1));
         grid.Children.Add(Place(BuildInfo(), 2));
         grid.Children.Add(Place(Section("Touches", BuildKeySection()), 3));
-        grid.Children.Add(Place(Section("Rotation", _skills), 4));
+        grid.Children.Add(Place(Section("Rotation", BuildSkillSection()), 4));
         grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 5));
         grid.Children.Add(Place(Section("Route de patrouille", BuildRouteSection()), 6));
         grid.Children.Add(Place(Section("Journal", _logScroll), 7));
@@ -479,11 +483,18 @@ public sealed class MainWindow : Window
                 MarkDirty();
             };
 
+            row.Reset = ResetButton($"Remettre {skill.Name} à zéro : le sort redevient disponible tout de suite.");
+            row.Reset.Click += (_, _) =>
+            {
+                _rotation.Reset(_options.Skills[index].CastId);
+                Refresh();
+            };
+
             row.Status = new TextBlock { Text = "-", Foreground = Muted, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
             row.Dot = Dot();
 
             _skillRows.Add(row);
-            _skills.Children.Add(BuildRow(row.Enabled, skill.Key, row.Seconds, row.Status, row.Dot));
+            _skills.Children.Add(BuildRow(row.Enabled, skill.Key, row.Seconds, row.Reset, row.Status, row.Dot));
         }
     }
 
@@ -526,12 +537,41 @@ public sealed class MainWindow : Window
                 MarkDirty();
             };
 
+            row.Reset = ResetButton($"Considérer {buff.Name} comme tombé : il sera relancé au prochain tour.");
+            row.Reset.Click += (_, _) =>
+            {
+                _buffs.Reset(_options.Buffs[index]);
+                Refresh();
+            };
+
             row.Status = new TextBlock { Text = "-", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
             row.Dot = Dot();
 
             _buffRows.Add(row);
-            _buffPanel.Children.Add(BuildRow(row.Enabled, buff.Key, row.Seconds, row.Status, row.Dot));
+            _buffPanel.Children.Add(BuildRow(row.Enabled, buff.Key, row.Seconds, row.Reset, row.Status, row.Dot));
         }
+    }
+
+    private Control BuildSkillSection()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(_skills);
+
+        // The countdown shown here is the bot's own, started from whatever the cooldown field said
+        // at the time of the cast. Correcting that field cannot shorten a wait already under way,
+        // so there has to be a way to end it by hand - otherwise tuning a number means sitting
+        // through the old one.
+        panel.Children.Add(Note
+        (
+            "Le ↻ d'une ligne rend ce sort disponible immédiatement. À utiliser après avoir corrigé "
+            + "un temps de recharge : le décompte en cours a démarré avec l'ancienne valeur."
+        ));
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        actions.Children.Add(_resetSkills);
+        panel.Children.Add(actions);
+
+        return panel;
     }
 
     private Control BuildBuffSection()
@@ -540,6 +580,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(_buffPanel);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        actions.Children.Add(_resetBuffs);
         actions.Children.Add(_save);
         actions.Children.Add(_saveStatus);
         panel.Children.Add(actions);
@@ -547,9 +588,9 @@ public sealed class MainWindow : Window
         return panel;
     }
 
-    private static Border BuildRow(CheckBox enabled, string? key, NumericUpDown seconds, TextBlock status, Border dot)
+    private static Border BuildRow(CheckBox enabled, string? key, NumericUpDown seconds, Button reset, TextBlock status, Border dot)
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,60,150,96,18") };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,60,150,44,96,18") };
 
         var keyLabel = new TextBlock
         {
@@ -564,11 +605,13 @@ public sealed class MainWindow : Window
         Grid.SetColumn(enabled, 0);
         Grid.SetColumn(keyLabel, 1);
         Grid.SetColumn(seconds, 2);
-        Grid.SetColumn(status, 3);
-        Grid.SetColumn(dot, 4);
+        Grid.SetColumn(reset, 3);
+        Grid.SetColumn(status, 4);
+        Grid.SetColumn(dot, 5);
         grid.Children.Add(enabled);
         grid.Children.Add(keyLabel);
         grid.Children.Add(seconds);
+        grid.Children.Add(reset);
         grid.Children.Add(status);
         grid.Children.Add(dot);
 
@@ -596,6 +639,30 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0, 0, 12, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+
+    private static TextBlock Note(string text, IBrush? foreground = null)
+        => new()
+        {
+            Text = text,
+            Foreground = foreground ?? Muted,
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 700
+        };
+
+    private static Button ResetButton(string tip)
+        => new()
+        {
+            Content = "\u21BB",
+            Width = 32,
+            Height = 32,
+            FontSize = 15,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            [ToolTip.TipProperty] = tip
         };
 
     private static Border Dot()
@@ -630,6 +697,8 @@ public sealed class MainWindow : Window
 
         public NumericUpDown Seconds { get; set; } = null!;
 
+        public Button Reset { get; set; } = null!;
+
         public TextBlock Status { get; set; } = null!;
 
         public Border Dot { get; set; } = null!;
@@ -642,6 +711,8 @@ public sealed class MainWindow : Window
         public CheckBox Enabled { get; set; } = null!;
 
         public NumericUpDown Seconds { get; set; } = null!;
+
+        public Button Reset { get; set; } = null!;
 
         public TextBlock Status { get; set; } = null!;
 
@@ -746,25 +817,18 @@ public sealed class MainWindow : Window
 
         // The section needed explaining in the window rather than only in the docs: a waypoint
         // carries two coordinate systems for reasons that are not obvious from a list of numbers.
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Le trajet parcouru quand il n'y a plus rien à taper. Le bot clique sur la minimap "
-                   + "pour aller au point suivant, et sait qu'il est arrivé grâce à sa position réelle.",
-            Foreground = Muted,
-            FontSize = 11.5,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 700
-        });
+        panel.Children.Add(Note
+        (
+            "Le trajet parcouru quand il n'y a plus rien à taper. Le bot clique sur la minimap "
+            + "pour aller au point suivant, et sait qu'il est arrivé grâce à sa position réelle."
+        ));
 
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Ajouter un point : place ton personnage à l'endroit voulu → arme F9 → vise ce même "
-                   + "endroit sur la minimap dans NosTale → presse F9.",
-            Foreground = Ink,
-            FontSize = 11.5,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 700
-        });
+        panel.Children.Add(Note
+        (
+            "Ajouter un point : place ton personnage à l'endroit voulu → arme F9 → vise ce même "
+            + "endroit sur la minimap dans NosTale → presse F9.",
+            Ink
+        ));
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         actions.Children.Add(_arm);
