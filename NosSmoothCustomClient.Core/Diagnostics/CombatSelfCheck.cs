@@ -55,7 +55,8 @@ public static class CombatSelfCheck
             await LeavingEntityReleasesTheTargetAsync().ConfigureAwait(false),
             await ClearedRoomHeadsForTheExitAsync().ConfigureAwait(false),
             await ClearedRoomStopsHuntingAsync().ConfigureAwait(false),
-            await BasicAttackFiresEvenWithSkillsReadyAsync().ConfigureAwait(false)
+            await BasicAttackFiresEvenWithSkillsReadyAsync().ConfigureAwait(false),
+            RouteIsStampedWhereItsPointsWereTaken()
         };
 
         var failed = 0;
@@ -285,6 +286,32 @@ public static class CombatSelfCheck
         state.UpdatePosition(13, 14);
 
         return (loop, state, actuator, options);
+    }
+
+    private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()
+    {
+        var options = new BotOptions { Waypoints = new List<Waypoint>() };
+        var state = new ProtocolStateManager(options);
+        var recorder = new WaypointRecorder(new CaptureTarget(), state, options, NullLogger<WaypointRecorder>.Instance);
+
+        // Recorded in the room...
+        state.EnterMap(4103);
+        state.UpdatePosition(13, 14);
+        recorder.Capture(1351, 100);
+        state.UpdatePosition(14, 1);
+        recorder.Capture(1354, 36);
+
+        // ...and saved back in town, which is where a run naturally ends. Taking the map at save
+        // time made the route belong to the town: refused where its points mean something, walked
+        // where they mean nothing.
+        state.EnterMap(2628);
+        state.UpdatePosition(107, 96);
+        recorder.Apply();
+
+        var stamped = options.RouteMapId == 4103;
+        var kept = options.Waypoints.Count == 2 && options.Waypoints[1].X == 14 && options.Waypoints[1].Y == 1;
+
+        return ("la route est estampillée là où ses points ont été pris", stamped && kept);
     }
 
     private static async Task<(string, bool)> BasicAttackFiresEvenWithSkillsReadyAsync()

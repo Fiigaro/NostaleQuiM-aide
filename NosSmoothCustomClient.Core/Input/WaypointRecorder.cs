@@ -34,6 +34,9 @@ public sealed class WaypointRecorder : BackgroundService
     private readonly object _sync = new();
 
     private volatile bool _armed;
+
+    // The map the points belong to, taken when the first one is captured.
+    private int _recordedOnMap = -1;
     private volatile bool _available;
     private DateTimeOffset _nextDisarmedWarning = DateTimeOffset.MinValue;
 
@@ -130,6 +133,7 @@ public sealed class WaypointRecorder : BackgroundService
         {
             recorded = _recorded.Count;
             _recorded.Clear();
+            _recordedOnMap = -1;
         }
 
         var configured = _options.Waypoints.Count;
@@ -154,19 +158,12 @@ public sealed class WaypointRecorder : BackgroundService
     /// <returns>The path written, or null with the reason.</returns>
     public (string? Path, string? Error) Save()
     {
-        lock (_sync)
+        if (Recorded.Count == 0)
         {
-            if (_recorded.Count == 0)
-            {
-                return (null, "no waypoint recorded");
-            }
-
-            _options.Waypoints = _recorded.ToList();
-
-            // Stamp the map. The click points are positions on this minimap and mean nothing on
-            // another one, so the route carries where it belongs and navigation stays put elsewhere.
-            _options.RouteMapId = _state.CurrentMapId >= 0 ? _state.CurrentMapId : null;
+            return (null, "no waypoint recorded");
         }
+
+        Apply();
 
         _logger.LogInformation
         (
@@ -271,6 +268,94 @@ public sealed class WaypointRecorder : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Records one point from coordinates already translated into the game window.
+    /// </summary>
+    /// <param name="clickX">X inside the game window.</param>
+    /// <param name="clickY">Y inside the game window.</param>
+    /// <remarks>
+    /// Separate from reading the mouse because only this half has rules worth checking - which map
+    /// a route belongs to, and refusing a point whose coordinates are unknown - and neither needs a
+    /// cursor to be exercised.
+    /// </remarks>
+    public void Capture(int clickX, int clickY)
+    {
+        var map = _state.CurrentMapId;
+
+        // A minimap belongs to one map, so a route cannot span two. Catching it here beats saving a
+        // list whose points were measured against different screens.
+        if (_recorded.Count > 0 && _recordedOnMap >= 0 && map >= 0 && map != _recordedOnMap)
+        {
+            _logger.LogWarning
+            (
+                "Nothing recorded: the points so far were taken on map {Recorded} and you are on " +
+                "map {Now}. Clear the route before recording a new one.",
+                _recordedOnMap,
+                map
+            );
+
+            return;
+        }
+
+        // Refused, not warned about. A waypoint whose map coordinates are unknown is stored as
+        // (0,0), which is a real coordinate: the loop then measures zero cells to it, decides it has
+        // arrived, and walks nowhere - silently, with a route that looks perfectly well formed.
+        if (!_state.HasPosition)
+        {
+            _logger.LogWarning
+            (
+                "Nothing recorded: the server has not said where the character is yet. Take one step "
+                + "in game so a position arrives, then press F9 again."
+            );
+
+            return;
+        }
+
+        var position = _state.Position;
+
+        lock (_sync)
+        {
+            if (_recorded.Count == 0)
+            {
+                _recordedOnMap = map;
+            }
+
+            _recorded.Add(new Waypoint(position.X, position.Y, clickX, clickY));
+        }
+
+        Changed?.Invoke();
+
+        _logger.LogInformation
+        (
+            "Waypoint {Number} recorded on map {Map}: minimap click at ({ClickX},{ClickY}).",
+            Recorded.Count,
+            map,
+            clickX,
+            clickY
+        );
+    }
+
+    /// <summary>
+    /// Applies the recorded route to the live options, without writing a file.
+    /// </summary>
+    public void Apply()
+    {
+        lock (_sync)
+        {
+            if (_recorded.Count == 0)
+            {
+                return;
+            }
+
+            _options.Waypoints = _recorded.ToList();
+
+            // The map the points were taken on, not the one you happen to be standing on now.
+            // Stamping at save time made a route recorded in a room and saved back in town belong to
+            // the town: refused where its coordinates mean something, walked where they mean nothing.
+            _options.RouteMapId = _recordedOnMap >= 0 ? _recordedOnMap : null;
+        }
+    }
+
     private void Capture(IntPtr window)
     {
         if (!GetCursorPos(out var cursor))
@@ -298,39 +383,7 @@ public sealed class WaypointRecorder : BackgroundService
             return;
         }
 
-        // Refused, not warned about. A waypoint whose map coordinates are unknown is stored as
-        // (0,0), which is a real coordinate: the loop then measures zero cells to it, decides it has
-        // arrived, and walks nowhere - silently, with a route that looks perfectly well formed.
-        if (!_state.HasPosition)
-        {
-            _logger.LogWarning
-            (
-                "Nothing recorded: the server has not said where the character is yet. Take one step "
-                + "in game so a position arrives, then press F9 again."
-            );
-
-            return;
-        }
-
-        var position = _state.Position;
-        var waypoint = new Waypoint(position.X, position.Y, point.X, point.Y);
-
-        lock (_sync)
-        {
-            _recorded.Add(waypoint);
-        }
-
-        Changed?.Invoke();
-
-        _logger.LogInformation
-        (
-            "Waypoint {Number} recorded: map {Map}, minimap click at ({ClickX},{ClickY}).",
-            Recorded.Count,
-            waypoint,
-            point.X,
-            point.Y
-        );
-
+        Capture(point.X, point.Y);
     }
 
     private void Finish()

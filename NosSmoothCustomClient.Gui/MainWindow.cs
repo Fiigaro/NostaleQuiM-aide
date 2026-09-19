@@ -83,6 +83,8 @@ public sealed class MainWindow : Window
     private int _probeIndex;
     private (IntPtr Handle, string ClassName)? _lastProbed;
 
+    private readonly Button _adoptMap = new() { Width = 260, Height = 28 };
+
     private readonly CheckBox _instanceMode = new()
     {
         Content = "Mode instance (espace-temps)",
@@ -239,6 +241,8 @@ public sealed class MainWindow : Window
             _runs.Changed += () => Dispatcher.UIThread.Post(RefreshRun);
         }
         _useProbed.Click += (_, _) => UseProbedWindow();
+
+        _adoptMap.Click += (_, _) => AdoptCurrentMap();
 
         _instanceMode.IsChecked = _options.InstanceMode;
         _instanceMode.IsCheckedChanged += (_, _) =>
@@ -1147,6 +1151,8 @@ public sealed class MainWindow : Window
 
         panel.Children.Add(actions);
 
+        panel.Children.Add(_adoptMap);
+
         var instance = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         instance.Children.Add(_instanceMode);
         instance.Children.Add(new TextBlock
@@ -1211,6 +1217,34 @@ public sealed class MainWindow : Window
 
         _recorder.Armed = !_recorder.Armed;
         RefreshRoute();
+    }
+
+    /// <summary>
+    /// Declares that the route belongs to the map the character is standing on.
+    /// </summary>
+    /// <remarks>
+    /// The points themselves are right far more often than the label on them - a route recorded in
+    /// a room and saved somewhere else came out belonging to the wrong map - and re-walking a whole
+    /// room to correct one number is a poor trade. The map is read off the character, the same
+    /// source the recorder uses, so this cannot write a value the bot would not have written itself.
+    /// </remarks>
+    private void AdoptCurrentMap()
+    {
+        var map = _state.CurrentMapId;
+
+        if (map < 0)
+        {
+            _routeStatus.Text = "carte encore inconnue : traverse une carte pour qu'elle soit annoncée";
+            _routeStatus.Foreground = Blocked;
+            return;
+        }
+
+        _options.RouteMapId = map;
+        MarkDirty();
+        RefreshRoute();
+
+        _routeStatus.Text = $"route déclarée sur la carte {map} — pense à enregistrer les réglages";
+        _routeStatus.Foreground = Ready;
     }
 
     private void ClearRoute()
@@ -1396,6 +1430,14 @@ public sealed class MainWindow : Window
 
 
         }
+
+        // The one setting that silently stops the bot walking, and the one the recorder used to get
+        // wrong, so it is stated and fixable here rather than only in the log.
+        var map = _state.CurrentMapId;
+        _adoptMap.IsEnabled = map >= 0 && _options.RouteMapId != map;
+        _adoptMap.Content = _options.RouteMapId == map && map >= 0
+            ? $"Route déclarée sur cette carte ({map})"
+            : $"Déclarer la route sur la carte courante ({(map < 0 ? "?" : map.ToString())})";
 
         var route = _recorder?.Recorded ?? Array.Empty<Waypoint>();
         var shown = route.Count > 0 ? route : _options.Waypoints.ToArray();
