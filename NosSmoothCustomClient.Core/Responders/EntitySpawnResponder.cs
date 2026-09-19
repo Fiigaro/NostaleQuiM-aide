@@ -111,15 +111,24 @@ public sealed class EntitySpawnResponder :
     public Task<Result> Respond(PacketEventArgs<OutPacket> packetArgs, CancellationToken ct = default)
     {
         var packet = packetArgs.Packet;
-        if (_state.TargetEntityId == packet.EntityId)
+
+        var wasTarget = _state.TargetEntityId == packet.EntityId;
+
+        // out carries both meanings and does not say which: a monster that died and one that merely
+        // walked out of view leave by the same packet. Naming the target case separately is what
+        // makes a recorded run readable - on our own target, moments after hitting it, a death is
+        // much the likelier of the two, and that is the line a reader needs to find.
+        _journal.Note(wasTarget
+            ? $"cible #{packet.EntityId} retirée (mort ou hors de vue)"
+            : $"hors de vue #{packet.EntityId}");
+
+        if (wasTarget)
         {
-            _logger.LogInformation("Target #{EntityId} left the map - resuming scanning.", packet.EntityId);
+            _logger.LogInformation("Target #{EntityId} is gone - resuming the scan.", packet.EntityId);
         }
 
-        // Said plainly because it is constantly mistaken for a death: out is what the server sends
-        // when an entity leaves view. A count built from it follows the character, not the fight.
-        _journal.Note($"hors de vue #{packet.EntityId}");
-
+        // Releases the lock as well as the table entry, which is what lets the next monster be
+        // picked up straight away.
         _state.ForgetEntity(packet.EntityId);
         return Task.FromResult(Result.FromSuccess());
     }

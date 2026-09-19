@@ -4,6 +4,7 @@ using NosSmooth.Core.Packets;
 using NosSmooth.Packets.Enums.Battle;
 using NosSmooth.Packets.Enums.Entities;
 using NosSmooth.Packets.Server.Battle;
+using NosSmooth.Packets.Server.Maps;
 using NosSmooth.PacketSerializer.Abstractions.Attributes;
 using NosSmoothCustomClient.Responders;
 using NosSmoothCustomClient.Configuration;
@@ -50,7 +51,8 @@ public static class CombatSelfCheck
             await RouteGoingNowhereIsReportedAsync().ConfigureAwait(false),
             await TheGamesOwnTargetIsAdoptedAsync().ConfigureAwait(false),
             await UnreachableWaypointIsSkippedAsync().ConfigureAwait(false),
-            await WorkingClicksAreNotBlamedWithoutAPositionAsync().ConfigureAwait(false)
+            await WorkingClicksAreNotBlamedWithoutAPositionAsync().ConfigureAwait(false),
+            await LeavingEntityReleasesTheTargetAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -263,6 +265,31 @@ public static class CombatSelfCheck
         var cast = actuator.Calls.Any(c => c.StartsWith("skill:", StringComparison.Ordinal));
 
         return ("la cible choisie par le jeu est adoptee", locked && cast && rotation is not null);
+    }
+
+    private static async Task<(string, bool)> LeavingEntityReleasesTheTargetAsync()
+    {
+        var (loop, state, _, actuator, _) = Build(selectsTargetItself: true);
+        var journal = new RunJournal();
+        var responder = new EntitySpawnResponder(state, new BotOptions(), journal, NullLogger<EntitySpawnResponder>.Instance);
+
+        Engage(state);
+
+        // The packet a monster leaves by, death included. The lock has to go with the table entry,
+        // or the bot keeps hitting something that is no longer there until the silence timeout.
+        await responder.Respond(new PacketEventArgs<OutPacket>
+        (
+            PacketSource.Server,
+            new OutPacket(EntityType.Monster, 42),
+            "out"
+        )).ConfigureAwait(false);
+
+        var released = state.Target is null;
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var lookedForAnother = actuator.Calls.Contains("target");
+
+        return ("une entité qui part libère la cible", released && lookedForAnother);
     }
 
     private static async Task<(string, bool)> WorkingClicksAreNotBlamedWithoutAPositionAsync()
