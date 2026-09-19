@@ -52,6 +52,17 @@ public static class Program
         if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
         {
             await Console.Error.WriteLineAsync(transportError).ConfigureAwait(false);
+
+            // Shown rather than only printed: the console this was launched from may be behind
+            // another window, or gone. Without the engine there is nothing to start, so the window
+            // is the whole application from here.
+            if (!args.Contains("--selftest", StringComparer.OrdinalIgnoreCase))
+            {
+                App.Services = null;
+                App.StartupError = transportError;
+                BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            }
+
             return 3;
         }
 

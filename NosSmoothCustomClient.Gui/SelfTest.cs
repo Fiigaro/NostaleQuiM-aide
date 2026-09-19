@@ -184,6 +184,11 @@ public static class SelfTest
             // exister : une ligne rouge sans raison ne vaut pas mieux que le silence.
             ("diagnostic rendu", texts.Any(t => t.Contains("Cibler et attaquer"))),
 
+            // Un échec de liaison doit se lire à l'écran : sortir avant que la fenêtre existe ne
+            // laisse rien pour l'afficher, et c'est exactement ce qui se lit comme « ça ne marche
+            // plus » sans explication.
+            ("un echec de liaison s'affiche", StartupErrorShows()),
+
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.
             ("effacer vide la route en cours", clearWorks),
@@ -206,6 +211,26 @@ public static class SelfTest
         Console.WriteLine($"{checks.Length - failed}/{checks.Length} verifications passees, {visuals.Count} controles dans l'arbre visuel.");
 
         return failed == 0 ? 0 : 3;
+    }
+
+    private static bool StartupErrorShows()
+    {
+        const string message = "Aucun client NosTale trouvé.";
+        var window = new StartupErrorWindow(message);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var shown = window.GetVisualDescendants()
+            .OfType<SelectableTextBlock>()
+            .Any(t => (t.Text ?? string.Empty).Contains(message));
+
+        // And the way out has to be there too, or the message is a dead end.
+        var hasHelp = window.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Any(t => (t.Text ?? string.Empty).Contains("--identify"));
+
+        window.Close();
+        return shown && hasHelp;
     }
 
     private static void Click(Button button)
