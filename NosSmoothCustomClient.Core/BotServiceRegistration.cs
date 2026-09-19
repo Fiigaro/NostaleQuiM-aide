@@ -149,6 +149,11 @@ public static class BotServiceRegistration
                 services.AddSingleton<WaypointRecorder>();
                 services.AddHostedService(sp => sp.GetRequiredService<WaypointRecorder>());
 
+                // Records a run played by hand, so a sequence can be derived from what was actually
+                // done rather than from a description of it.
+                services.AddSingleton<RunRecorder>();
+                services.AddHostedService(sp => sp.GetRequiredService<RunRecorder>());
+
                 if (play && OperatingSystem.IsWindows())
                 {
                     services.AddSingleton(new StartLive(true));

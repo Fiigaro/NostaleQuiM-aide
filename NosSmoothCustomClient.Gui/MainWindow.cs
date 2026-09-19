@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
@@ -71,6 +72,7 @@ public sealed class MainWindow : Window
     private readonly SwitchableGameInput? _input;
     private readonly WaypointRecorder? _recorder;
     private readonly OrchestrationBackgroundService? _loop;
+    private readonly RunRecorder? _runs;
 
     private readonly Button _live = new() { Width = 150, Height = 32 };
     private readonly Button _arm = new() { Width = 190, Height = 28 };
@@ -96,6 +98,12 @@ public sealed class MainWindow : Window
     private readonly Button _saveRoute = new() { Content = "Enregistrer la route", Width = 170, Height = 28 };
     private readonly StackPanel _routeList = new() { Spacing = 3 };
     private readonly StackPanel _readiness = new() { Spacing = 3 };
+    private readonly Button _runToggle = new() { Width = 210, Height = 28 };
+    private readonly Button _runSave = new() { Content = "Enregistrer le fichier", Width = 180, Height = 28 };
+    private readonly Button _runClear = new() { Content = "Effacer", Width = 90, Height = 28 };
+    private readonly TextBlock _runStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _runList = new() { Spacing = 2 };
+    private readonly ScrollViewer _runScroll;
     private readonly TextBlock _routeStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBox _keyAttack = KeyBox();
     private readonly TextBox _keyLoot = KeyBox();
@@ -147,12 +155,14 @@ public sealed class MainWindow : Window
         RunMode mode,
         SwitchableGameInput? input = null,
         WaypointRecorder? recorder = null,
-        OrchestrationBackgroundService? loop = null
+        OrchestrationBackgroundService? loop = null,
+        RunRecorder? runs = null
     )
     {
         _input = input;
         _recorder = recorder;
         _loop = loop;
+        _runs = runs;
         _state = state;
         _rotation = rotation;
         _buffs = buffs;
@@ -167,6 +177,14 @@ public sealed class MainWindow : Window
         MinWidth = 640;
         MinHeight = 460;
         Background = new SolidColorBrush(Color.Parse("#141517"));
+
+        _runScroll = new ScrollViewer
+        {
+            Content = _runList,
+            Height = 150,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+        };
 
         _logScroll = new ScrollViewer
         {
@@ -191,6 +209,14 @@ public sealed class MainWindow : Window
         _clearRoute.Click += (_, _) => ClearRoute();
         _testClick.Click += (_, _) => TestClick();
         _probeClick.Click += (_, _) => ProbeClick();
+        _runToggle.Click += (_, _) => { _runs?.Toggle(); RefreshRun(); };
+        _runClear.Click += (_, _) => { _runs?.Clear(); RefreshRun(); };
+        _runSave.Click += (_, _) => SaveRun();
+
+        if (_runs is not null)
+        {
+            _runs.Changed += () => Dispatcher.UIThread.Post(RefreshRun);
+        }
         _useProbed.Click += (_, _) => UseProbedWindow();
 
         _arrivalRadius.Value = _options.WaypointArrivalRadius;
@@ -308,6 +334,7 @@ public sealed class MainWindow : Window
         RefreshBuffs();
         RefreshRoute();
         RefreshReadiness();
+        RefreshRun();
         RefreshLog();
     }
 
@@ -450,7 +477,7 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             Margin = new Thickness(14),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto")
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto")
         };
 
         grid.Children.Add(Place(BuildHeader(), 0));
@@ -461,7 +488,8 @@ public sealed class MainWindow : Window
         grid.Children.Add(Place(Section("Rotation", BuildSkillSection()), 5));
         grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 6));
         grid.Children.Add(Place(Section("Route de patrouille", BuildRouteSection()), 7));
-        grid.Children.Add(Place(Section("Journal", _logScroll), 8));
+        grid.Children.Add(Place(Section("Enregistrer une run (F11)", BuildRunSection()), 8));
+        grid.Children.Add(Place(Section("Journal", _logScroll), 9));
 
         return new ScrollViewer
         {
@@ -866,6 +894,91 @@ public sealed class MainWindow : Window
                 MarkDirty();
             }
         };
+
+    private Control BuildRunSection()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+
+        panel.Children.Add(Note
+        (
+            "Joue la séquence à la main : chaque touche et chaque clic envoyés au jeu sont notés "
+            + "avec ce que le serveur annonçait au même instant. C'est cette seconde moitié qui "
+            + "rend la run rejouable — on attend la conséquence, pas un chrono."
+        ));
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        actions.Children.Add(_runToggle);
+        actions.Children.Add(_runSave);
+        actions.Children.Add(_runClear);
+        actions.Children.Add(_runStatus);
+        panel.Children.Add(actions);
+
+        panel.Children.Add(_runScroll);
+        return panel;
+    }
+
+    private void RefreshRun()
+    {
+        if (_runs is null)
+        {
+            _runToggle.Content = "Indisponible";
+            _runToggle.IsEnabled = false;
+            _runSave.IsEnabled = false;
+            _runClear.IsEnabled = false;
+            _runStatus.Text = "disponible en mode capture (--pcap)";
+            return;
+        }
+
+        if (!_runs.Available)
+        {
+            _runToggle.Content = "F11 hors service";
+            _runToggle.IsEnabled = false;
+            _runStatus.Text = _runs.UnavailableReason ?? "fenêtre de jeu introuvable";
+            _runStatus.Foreground = Blocked;
+            return;
+        }
+
+        var events = _runs.Events;
+
+        _runToggle.IsEnabled = true;
+        _runToggle.Content = _runs.Recording ? "ENREGISTRE — cliquer pour arrêter" : "Démarrer l'enregistrement (F11)";
+        _runToggle.Foreground = _runs.Recording ? Blocked : Ink;
+        _runSave.IsEnabled = events.Count > 0;
+        _runClear.IsEnabled = events.Count > 0 && !_runs.Recording;
+
+        if (_runStatus.Foreground != Ready)
+        {
+            _runStatus.Text = events.Count == 0 ? "rien d'enregistré" : $"{events.Count} évènement(s)";
+            _runStatus.Foreground = Muted;
+        }
+
+        _runList.Children.Clear();
+
+        // The tail, not the whole run: the last few lines are what tells you it is recording what
+        // you are doing, and a thousand-line list would only make the window slow.
+        foreach (var entry in events.Skip(Math.Max(0, events.Count - 40)))
+        {
+            _runList.Children.Add(new TextBlock
+            {
+                Text = entry.Summary,
+                Foreground = entry.Kind == RunEventKind.State ? Muted : Ink,
+                FontSize = 11,
+                FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace")
+            });
+        }
+    }
+
+    private void SaveRun()
+    {
+        if (_runs is null)
+        {
+            return;
+        }
+
+        var (path, error) = _runs.Save();
+        _runStatus.Text = path is null ? "échec : " + error : "écrit dans " + Path.GetFileName(path);
+        _runStatus.Foreground = path is null ? Blocked : Ready;
+    }
 
     private Control BuildReadinessSection()
     {

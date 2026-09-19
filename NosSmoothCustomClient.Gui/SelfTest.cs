@@ -6,6 +6,7 @@ using Avalonia.VisualTree;
 using NosSmoothCustomClient.Configuration;
 using System.IO;
 using NosSmoothCustomClient.Diagnostics;
+using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.State;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -196,6 +197,10 @@ public static class SelfTest
             // vrai jeu annonçait à son opérateur que rien n'était réel.
             ("le mode est nomme correctement", ModeIsNamedCorrectly()),
 
+            // Le panneau d'enregistrement de run, et le format des lignes qu'il affichera.
+            ("section run rendue", texts.Any(t => t.Contains("Joue la séquence à la main"))),
+            ("une ligne de run se lit", RunEventReadsBack()),
+
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.
             ("effacer vide la route en cours", clearWorks),
@@ -218,6 +223,22 @@ public static class SelfTest
         Console.WriteLine($"{checks.Length - failed}/{checks.Length} verifications passees, {visuals.Count} controles dans l'arbre visuel.");
 
         return failed == 0 ? 0 : 3;
+    }
+
+    private static bool RunEventReadsBack()
+    {
+        // A recorded action has to survive the round trip to the file and still say where it was
+        // clicked and what the world looked like - that second half is the whole point of recording
+        // it rather than filming it.
+        var entry = new RunEvent(1500, RunEventKind.Click, "clic gauche", 842, 511, 12, 107, 202, 4242, 7);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(entry);
+        var back = System.Text.Json.JsonSerializer.Deserialize<RunEvent>(json);
+
+        return back == entry
+               && entry.Summary.Contains("842,511")
+               && entry.Summary.Contains("carte 12")
+               && entry.Summary.Contains("mobs=7");
     }
 
     private static bool ModeIsNamedCorrectly()

@@ -71,6 +71,7 @@ public sealed class App : Application
             mode,
             services.GetService<NosSmoothCustomClient.Input.SwitchableGameInput>(),
             services.GetService<NosSmoothCustomClient.Input.WaypointRecorder>(),
-            services.GetService<NosSmoothCustomClient.Orchestration.OrchestrationBackgroundService>()
+            services.GetService<NosSmoothCustomClient.Orchestration.OrchestrationBackgroundService>(),
+            services.GetService<NosSmoothCustomClient.Input.RunRecorder>()
         );
 }

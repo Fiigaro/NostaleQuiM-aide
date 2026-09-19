@@ -10,3 +10,6 @@ capture.log
 *.capture.log
 extrait.txt
 appsettings.local.json
+
+# Runs enregistrées : contiennent les coordonnées et la carte du personnage
+run-*.json
