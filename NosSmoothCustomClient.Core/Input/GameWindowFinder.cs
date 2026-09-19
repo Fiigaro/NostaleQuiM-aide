@@ -67,6 +67,57 @@ public static class GameWindowFinder
     }
 
     /// <summary>
+    /// Lists a window and every descendant of it, for probing which one takes mouse input.
+    /// </summary>
+    /// <param name="root">The top level game window.</param>
+    /// <returns>The root first, then its children, outermost first.</returns>
+    /// <remarks>
+    /// A Delphi client draws into a child window, and it is often that child - not the form the bot
+    /// binds to - that handles mouse messages. Posting to the wrong one is accepted and dropped, so
+    /// the only way to find out which is which is to try each in turn and watch the character.
+    /// </remarks>
+    public static IReadOnlyList<(IntPtr Handle, string ClassName, int Depth)> ListCandidates(IntPtr root)
+    {
+        var found = new List<(IntPtr, string, int)>();
+
+        if (root == IntPtr.Zero)
+        {
+            return found;
+        }
+
+        found.Add((root, ReadClassName(root), 0));
+        Collect(root, 1);
+
+        return found;
+
+        void Collect(IntPtr parent, int depth)
+        {
+            if (depth > 3)
+            {
+                return;
+            }
+
+            var children = new List<IntPtr>();
+
+            EnumChildWindows(parent, (handle, _) =>
+            {
+                children.Add(handle);
+                return true;
+            }, IntPtr.Zero);
+
+            foreach (var child in children)
+            {
+                if (found.Any(f => f.Item1 == child))
+                {
+                    continue;
+                }
+
+                found.Add((child, ReadClassName(child), depth));
+            }
+        }
+    }
+
+    /// <summary>
     /// Reads a window's class name.
     /// </summary>
     /// <param name="handle">The window.</param>
@@ -84,6 +135,10 @@ public static class GameWindowFinder
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int processId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback, IntPtr lParam);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder buffer, int maxCount);

@@ -164,6 +164,45 @@ public sealed class WindowsGameInput : IGameInput
     /// so a true here is not evidence the character moved. Many clients hit-test the minimap against
     /// the real cursor rather than the message's coordinates, and ignore this entirely.
     /// </remarks>
+    /// <summary>
+    /// Lists the windows a click could be posted to: the bound window and its descendants.
+    /// </summary>
+    /// <returns>The candidates, outermost first.</returns>
+    public IReadOnlyList<(IntPtr Handle, string ClassName, int Depth)> ClickCandidates()
+        => GameWindowFinder.ListCandidates(_window);
+
+    /// <summary>
+    /// Posts a click to one specific window, for finding out which one listens.
+    /// </summary>
+    /// <param name="target">The window to post to.</param>
+    /// <param name="x">X in the bound window's client area.</param>
+    /// <param name="y">Y in the bound window's client area.</param>
+    /// <returns>True when the messages were queued.</returns>
+    /// <remarks>
+    /// The point is translated into the target's own client area. A child window has its own origin,
+    /// so posting the parent's coordinates to it would land somewhere else entirely and make a
+    /// window that does listen look like one that does not.
+    /// </remarks>
+    public bool PostClickTo(IntPtr target, int x, int y)
+    {
+        if (_window == IntPtr.Zero || target == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var point = new Point { X = x, Y = y };
+
+        if (target != _window)
+        {
+            if (!ClientToScreen(_window, ref point) || !ScreenToClient(target, ref point))
+            {
+                return false;
+            }
+        }
+
+        return PostClickRaw(target, point.X, point.Y);
+    }
+
     private bool PostClick(int x, int y)
     {
         if (_window == IntPtr.Zero)
@@ -171,13 +210,18 @@ public sealed class WindowsGameInput : IGameInput
             return false;
         }
 
+        return PostClickRaw(_window, x, y);
+    }
+
+    private bool PostClickRaw(IntPtr window, int x, int y)
+    {
         var position = (IntPtr)((y << 16) | (x & 0xFFFF));
 
         // The move first: a client that tracks the cursor would otherwise register the click at
         // wherever it last believed the pointer to be.
-        var posted = PostMessage(_window, WmMouseMove, 0, position);
-        posted &= PostMessage(_window, WmLButtonDown, MkLButton, position);
-        posted &= PostMessage(_window, WmLButtonUp, 0, position);
+        var posted = PostMessage(window, WmMouseMove, 0, position);
+        posted &= PostMessage(window, WmLButtonDown, MkLButton, position);
+        posted &= PostMessage(window, WmLButtonUp, 0, position);
 
         if (!posted)
         {
@@ -281,6 +325,10 @@ public sealed class WindowsGameInput : IGameInput
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ClientToScreen(IntPtr hWnd, ref Point point);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ScreenToClient(IntPtr hWnd, ref Point point);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

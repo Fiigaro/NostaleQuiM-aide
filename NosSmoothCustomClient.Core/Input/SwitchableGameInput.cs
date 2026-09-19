@@ -47,6 +47,25 @@ public sealed class SwitchableGameInput : IGameInput
     /// <summary>Gets how minimap clicks are currently delivered.</summary>
     public MinimapClickMode ClickMode => _live.ClickMode;
 
+    /// <summary>Lists the windows a posted click could go to.</summary>
+    public IReadOnlyList<(IntPtr Handle, string ClassName, int Depth)> ClickCandidates()
+        => _live.ClickCandidates();
+
+    /// <summary>
+    /// Posts a click to one candidate window, bypassing the current click mode.
+    /// </summary>
+    /// <param name="target">The window to try.</param>
+    /// <param name="x">X in the bound window's client area.</param>
+    /// <param name="y">Y in the bound window's client area.</param>
+    /// <returns>True when the messages were queued.</returns>
+    /// <remarks>
+    /// Deliberately not routed through the mode: the whole point is to find out whether some window
+    /// of this client does accept posted clicks, which the real cursor would hide by working
+    /// regardless. Queued is not accepted, so only watching the character answers it.
+    /// </remarks>
+    public bool ProbeClick(IntPtr target, int x, int y)
+        => _live.PostClickTo(target, x, y);
+
     /// <summary>
     /// Fixes how clicks are sent, so the bot will not change it on its own.
     /// </summary>

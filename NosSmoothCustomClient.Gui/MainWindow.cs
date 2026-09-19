@@ -76,6 +76,9 @@ public sealed class MainWindow : Window
     private readonly Button _arm = new() { Width = 190, Height = 28 };
     private readonly Button _clearRoute = new() { Content = "Effacer", Width = 90, Height = 28 };
     private readonly Button _testClick = new() { Content = "Tester le clic (point 1)", Width = 190, Height = 28 };
+    private readonly Button _probeClick = new() { Content = "Sonder les fenêtres", Width = 170, Height = 28 };
+    private int _probeIndex;
+
     private readonly NumericUpDown _arrivalRadius = new()
     {
         Minimum = 1,
@@ -185,6 +188,7 @@ public sealed class MainWindow : Window
         _arm.Click += (_, _) => ToggleArm();
         _clearRoute.Click += (_, _) => ClearRoute();
         _testClick.Click += (_, _) => TestClick();
+        _probeClick.Click += (_, _) => ProbeClick();
 
         _arrivalRadius.Value = _options.WaypointArrivalRadius;
         _arrivalRadius.ValueChanged += (_, e) =>
@@ -972,6 +976,7 @@ public sealed class MainWindow : Window
         actions.Children.Add(_saveRoute);
         actions.Children.Add(_clearRoute);
         actions.Children.Add(_testClick);
+        actions.Children.Add(_probeClick);
         actions.Children.Add(_routeStatus);
 
         panel.Children.Add(actions);
@@ -1083,6 +1088,66 @@ public sealed class MainWindow : Window
             : $"le clic en ({x},{y}) a été refusé par la fenêtre";
 
         _routeStatus.Foreground = sent ? Ready : Blocked;
+    }
+
+    /// <summary>
+    /// Posts a click to one window of the client per press, to find one that listens.
+    /// </summary>
+    /// <remarks>
+    /// One per press rather than all of them in a burst: the answer is whether the character moved,
+    /// which only a person watching the game can give, and they can only attribute it if a single
+    /// window was tried. A Delphi client renders into a child window, and it is often that child
+    /// rather than the form the bot binds to that handles mouse input - if one of them does, clicks
+    /// no longer need the real cursor, and several clients can be driven at once.
+    /// </remarks>
+    private void ProbeClick()
+    {
+        if (_input is null)
+        {
+            _routeStatus.Text = "disponible en mode capture (--pcap)";
+            _routeStatus.Foreground = Blocked;
+            return;
+        }
+
+        var route = _recorder?.Recorded is { Count: > 0 } recorded ? recorded : _options.Waypoints.ToArray();
+
+        if (route.Count == 0 || route[0] is not { ClickX: { } x, ClickY: { } y })
+        {
+            _routeStatus.Text = "il faut un point 1 avec un clic minimap pour sonder";
+            _routeStatus.Foreground = Blocked;
+            return;
+        }
+
+        var candidates = _input.ClickCandidates();
+
+        if (candidates.Count == 0)
+        {
+            _routeStatus.Text = "aucune fenêtre à sonder : le jeu n'est pas lié";
+            _routeStatus.Foreground = Blocked;
+            return;
+        }
+
+        var index = _probeIndex % candidates.Count;
+        var (handle, className, depth) = candidates[index];
+        _probeIndex++;
+
+        var sent = _input.ProbeClick(handle, x, y);
+
+        _routeStatus.Text = sent
+            ? $"essai {index + 1}/{candidates.Count} : « {className} » (niveau {depth}) — le personnage part ?"
+            : $"essai {index + 1}/{candidates.Count} : « {className} » a refusé le message";
+
+        _routeStatus.Foreground = sent ? Ink : Blocked;
+
+        _logs.Add(new LogLine
+        (
+            DateTimeOffset.Now,
+            LogLevel.Information,
+            "Sonde",
+            sent
+                ? $"Clic posté à 0x{handle.ToInt64():X} (« {className} », niveau {depth}), essai {index + 1}/{candidates.Count}."
+                : $"Le message a été refusé par 0x{handle.ToInt64():X} (« {className} »)."
+        ));
     }
 
     private void SaveRoute()
