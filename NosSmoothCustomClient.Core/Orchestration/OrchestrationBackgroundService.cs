@@ -404,20 +404,17 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         var waypoint = _state.CurrentWaypoint;
         var distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
 
-        if (distance <= _options.WaypointArrivalRadius)
+        // Without a position there is no such thing as having arrived, and (0,0) is a real
+        // coordinate rather than a way of saying so. Walk to the current waypoint: the character
+        // moving is what makes the server report where it is, which is what makes arrival mean
+        // anything at all from the next tick on.
+        if (!_state.HasPosition)
         {
-            var next = _state.AdvanceWaypoint();
-            _logger.LogInformation
-            (
-                "Reached waypoint {Waypoint} (within {Radius} cells); next waypoint is {Next}.",
-                waypoint,
-                _options.WaypointArrivalRadius,
-                next
-            );
-
-            waypoint = next;
-            distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
-            if (distance == 0)
+            Decide(4, "navigation: position encore inconnue, on lance la marche vers {0}", waypoint);
+        }
+        else if (distance <= _options.WaypointArrivalRadius)
+        {
+            if (!TryAdvancePastArrivedWaypoints(position, ref waypoint, ref distance))
             {
                 return;
             }
@@ -452,6 +449,77 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         _walkingTo = index;
         _walkedFrom = position;
         _walkedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Steps past every waypoint the character is already standing on.
+    /// </summary>
+    /// <returns>True when a waypoint worth walking to was found.</returns>
+    /// <remarks>
+    /// One step per tick was not enough, and stopping at a waypoint zero cells away was worse than
+    /// not enough: starting a run standing on the first point, the loop advanced once, found the
+    /// next point also within reach, and returned having done nothing - every tick, forever. A route
+    /// whose points are all in the same place says so once rather than looping in silence.
+    /// </remarks>
+    private bool TryAdvancePastArrivedWaypoints(Waypoint position, ref Waypoint waypoint, ref int distance)
+    {
+        var waypoints = _options.Waypoints;
+
+        for (var step = 0; step < waypoints.Count; step++)
+        {
+            var reached = waypoint;
+            waypoint = _state.AdvanceWaypoint();
+            distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
+
+            if (distance > _options.WaypointArrivalRadius)
+            {
+                _logger.LogInformation
+                (
+                    "Reached waypoint {Waypoint} (within {Radius} cells); next waypoint is {Next}, {Distance} cells away.",
+                    reached,
+                    _options.WaypointArrivalRadius,
+                    waypoint,
+                    distance
+                );
+
+                return true;
+            }
+        }
+
+        // A whole lap without finding anywhere to go.
+        Decide
+        (
+            4,
+            "navigation: les {0} waypoints sont tous à moins de {1} cases de ({2},{3}) - la route ne mène nulle part",
+            waypoints.Count,
+            _options.WaypointArrivalRadius,
+            position.X,
+            position.Y
+        );
+
+        ReportDegenerateRoute(position);
+        return false;
+    }
+
+    private void ReportDegenerateRoute(Waypoint position)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (now < _nextRefusalWarning)
+        {
+            return;
+        }
+
+        _nextRefusalWarning = now.AddSeconds(10);
+
+        _logger.LogWarning
+        (
+            "Every waypoint is within {Radius} cells of ({X},{Y}), so there is nowhere to walk. " +
+            "This is what a route recorded before the character's position was known looks like - "
+            + "the points all read (0,0). Record it again, moving the character between each F9.",
+            _options.WaypointArrivalRadius,
+            position.X,
+            position.Y
+        );
     }
 
     private void ReportWaypointRefused(int index, Waypoint waypoint)

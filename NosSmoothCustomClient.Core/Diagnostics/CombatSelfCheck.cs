@@ -44,7 +44,10 @@ public static class CombatSelfCheck
             await WalkingIsNotRestartedEveryTickAsync().ConfigureAwait(false),
             await StalledWalkIsSentAgainAsync().ConfigureAwait(false),
             await IgnoredClicksChangeHowWeClickAsync().ConfigureAwait(false),
-            await UnknownMapDoesNotBlockTheRouteAsync().ConfigureAwait(false)
+            await UnknownMapDoesNotBlockTheRouteAsync().ConfigureAwait(false),
+            await StartingOnAWaypointStillWalksAsync().ConfigureAwait(false),
+            await UnknownPositionStillStartsWalkingAsync().ConfigureAwait(false),
+            await RouteGoingNowhereIsReportedAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -239,6 +242,61 @@ public static class CombatSelfCheck
         return ("un trajet bloque est relance", heldAtFirst && sentAgain);
     }
 
+    private static async Task<(string, bool)> StartingOnAWaypointStillWalksAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+
+        // Two points within the arrival radius of the start, then one that is actually elsewhere.
+        // Stepping past a single point is not enough: the bot has to keep going until it finds
+        // somewhere worth walking to, rather than setting off for a point it is already standing on.
+        options.Waypoints = new List<Waypoint> { new(50, 50, 400, 300), new(51, 50, 405, 300), new(80, 80, 410, 310) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+
+        // Standing exactly on the first waypoint, which is where a run started from the spot the
+        // route was recorded on always begins.
+        state.UpdatePosition(50, 50);
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        return ("partir depuis un waypoint ne bloque pas", actuator.Calls.Contains("waypoint:2"));
+    }
+
+    private static async Task<(string, bool)> UnknownPositionStillStartsWalkingAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true, withPosition: false);
+        options.Waypoints = new List<Waypoint> { new(50, 50, 400, 300), new(80, 80, 410, 310) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+
+        // No position has ever been reported, so the state reads (0,0) - which must not be taken
+        // for a real coordinate that happens to sit on a waypoint.
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        return ("sans position connue il marche quand meme",
+            !state.HasPosition && actuator.Calls.Any(c => c.StartsWith("waypoint:", StringComparison.Ordinal)));
+    }
+
+    private static async Task<(string, bool)> RouteGoingNowhereIsReportedAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+        options.Waypoints = new List<Waypoint> { new(0, 0, 400, 300), new(0, 0, 410, 310) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+
+        state.UpdatePosition(0, 0);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        var walkedNowhere = !actuator.Calls.Any(c => c.StartsWith("waypoint:", StringComparison.Ordinal));
+        var loopSaysSo = loop.LastDecision.Contains("ne mène nulle part", StringComparison.Ordinal);
+        var windowSaysSo = !BotReadiness.Describe(options, state, null).First(i => i.Name == "Déplacement").Ready;
+
+        return ("une route qui ne mene nulle part est signalee", walkedNowhere && loopSaysSo && windowSaysSo);
+    }
+
     private static async Task<(string, bool)> UnknownMapDoesNotBlockTheRouteAsync()
     {
         var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
@@ -320,7 +378,7 @@ public static class CombatSelfCheck
     }
 
     private static (OrchestrationBackgroundService Loop, ProtocolStateManager State, SkillRotation Rotation, RecordingActuator Actuator, BotOptions Options)
-        Build(bool selectsTargetItself)
+        Build(bool selectsTargetItself, bool withPosition = true)
     {
         var options = new BotOptions
         {
@@ -333,7 +391,11 @@ public static class CombatSelfCheck
 
         var state = new ProtocolStateManager(options);
         state.UpdateVitals(2000, 2000, 1000, 1000);
-        state.UpdatePosition(50, 50);
+
+        if (withPosition)
+        {
+            state.UpdatePosition(50, 50);
+        }
 
         var rotation = new SkillRotation(options, NullLogger<SkillRotation>.Instance);
         var actuator = new RecordingActuator(selectsTargetItself);

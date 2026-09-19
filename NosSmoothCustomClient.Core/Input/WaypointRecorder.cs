@@ -274,6 +274,20 @@ public sealed class WaypointRecorder : BackgroundService
             return;
         }
 
+        // Refused, not warned about. A waypoint whose map coordinates are unknown is stored as
+        // (0,0), which is a real coordinate: the loop then measures zero cells to it, decides it has
+        // arrived, and walks nowhere - silently, with a route that looks perfectly well formed.
+        if (!_state.HasPosition)
+        {
+            _logger.LogWarning
+            (
+                "Nothing recorded: the server has not said where the character is yet. Take one step "
+                + "in game so a position arrives, then press F9 again."
+            );
+
+            return;
+        }
+
         var position = _state.Position;
         var waypoint = new Waypoint(position.X, position.Y, point.X, point.Y);
 
@@ -293,14 +307,6 @@ public sealed class WaypointRecorder : BackgroundService
             point.Y
         );
 
-        if (position is { X: 0, Y: 0 })
-        {
-            _logger.LogWarning
-            (
-                "The character's position is still unknown, so this waypoint cannot be checked for " +
-                "arrival. Move about until the log shows a position, then record it again."
-            );
-        }
     }
 
     private void Finish()

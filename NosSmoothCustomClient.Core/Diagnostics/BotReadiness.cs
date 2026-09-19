@@ -109,6 +109,27 @@ public static class BotReadiness
             );
         }
 
+        // A route whose points are all in one spot is the shape a route takes when it was recorded
+        // before the server said where the character was: every point reads (0,0).
+        var spread = options.Waypoints
+            .Select(w => (w.X, w.Y))
+            .Distinct()
+            .Count();
+
+        // A single waypoint is not degenerate: there is still somewhere to walk to from elsewhere.
+        // Several points sharing one coordinate is the shape that goes nowhere.
+        if (options.Waypoints.Count > 1 && spread <= 1)
+        {
+            return new ReadinessItem
+            (
+                "Déplacement",
+                false,
+                $"les {options.Waypoints.Count} waypoints sont tous au même endroit "
+                + $"({options.Waypoints[0].X},{options.Waypoints[0].Y}) : la route ne mène nulle part. "
+                + "Réenregistre-la en déplaçant le personnage entre chaque F9"
+            );
+        }
+
         if (!options.RouteAppliesOnMap(state.CurrentMapId))
         {
             return new ReadinessItem

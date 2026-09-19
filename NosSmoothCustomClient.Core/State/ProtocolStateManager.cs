@@ -56,6 +56,7 @@ public sealed class ProtocolStateManager
     private readonly SemaphoreSlim _cycleLock = new(1, 1);
 
     private Waypoint _position;
+    private bool _hasPosition;
     private TargetSnapshot? _target;
 
     private long _currentHp;
@@ -115,6 +116,27 @@ public sealed class ProtocolStateManager
 
     /// <summary>Gets the maximum MP of the character.</summary>
     public long MaxMp => Interlocked.Read(ref _maxMp);
+
+    /// <summary>
+    /// Gets a value indicating whether the character's position has ever been reported.
+    /// </summary>
+    /// <remarks>
+    /// Position comes from <c>at</c>, which the server sends on entering a map, and from <c>mv</c>,
+    /// which it sends while moving. A bot started on a character that is standing still has neither,
+    /// and an unreported position reads as (0,0) - a real coordinate, and one that happens to be
+    /// distance zero from any waypoint that was recorded the same way. Arrival logic against that is
+    /// how a bot decides it is already everywhere it was going.
+    /// </remarks>
+    public bool HasPosition
+    {
+        get
+        {
+            lock (_positionSync)
+            {
+                return _hasPosition;
+            }
+        }
+    }
 
     /// <summary>Gets the map the character is currently on, or -1 while it is not known yet.</summary>
     public int CurrentMapId => Volatile.Read(ref _currentMapId);
@@ -206,6 +228,7 @@ public sealed class ProtocolStateManager
         lock (_positionSync)
         {
             _position = new Waypoint(x, y);
+            _hasPosition = true;
         }
     }
 
