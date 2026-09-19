@@ -923,13 +923,29 @@ public sealed class MainWindow : Window
     {
         // The list is worth showing whether or not a recorder exists: without one the configured
         // route is still what the bot will walk, and an empty panel would read as "no route".
-        if (_recorder is not null)
+        if (_recorder is null)
         {
-            _arm.Content = _recorder.Armed ? "F9 armé — cliquer pour désarmer" : "Armer l'enregistrement (F9)";
+            _arm.Content = "Enregistrement indisponible";
+        }
+        else if (!_recorder.Available)
+        {
+            // The one state that used to be completely silent: F9 pressed, nothing recorded, no
+            // reason given anywhere. Now the button says so and names the cause.
+            _arm.Content = "F9 hors service";
+            _arm.IsEnabled = false;
+            _routeStatus.Text = _recorder.UnavailableReason ?? "fenêtre de jeu introuvable";
+            _routeStatus.Foreground = Blocked;
         }
         else
         {
-            _arm.Content = "Enregistrement indisponible";
+            _arm.Content = _recorder.Armed ? "F9 armé — cliquer pour désarmer" : "Armer l'enregistrement (F9)";
+            _arm.IsEnabled = true;
+            _arm.Foreground = _recorder.Armed ? Ready : Ink;
+
+            if (_recorder.Armed && _routeStatus.Foreground == Blocked)
+            {
+                _routeStatus.Text = string.Empty;
+            }
         }
 
         var route = _recorder?.Recorded ?? Array.Empty<Waypoint>();

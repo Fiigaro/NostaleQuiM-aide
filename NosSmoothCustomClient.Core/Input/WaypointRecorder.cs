@@ -28,13 +28,14 @@ public sealed class WaypointRecorder : BackgroundService
     private readonly CaptureTarget _target;
     private readonly ProtocolStateManager _state;
     private readonly BotOptions _options;
-    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<WaypointRecorder> _logger;
 
     private readonly List<Waypoint> _recorded = new();
     private readonly object _sync = new();
 
     private volatile bool _armed;
+    private volatile bool _available;
+    private DateTimeOffset _nextDisarmedWarning = DateTimeOffset.MinValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WaypointRecorder"/> class.
@@ -42,7 +43,6 @@ public sealed class WaypointRecorder : BackgroundService
     /// <param name="target">The captured game process.</param>
     /// <param name="state">The state manager, for the character's position.</param>
     /// <param name="options">The bot options the route is written into.</param>
-    /// <param name="lifetime">The application lifetime.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="startArmed">Whether recording begins armed.</param>
     public WaypointRecorder
@@ -50,7 +50,6 @@ public sealed class WaypointRecorder : BackgroundService
         CaptureTarget target,
         ProtocolStateManager state,
         BotOptions options,
-        IHostApplicationLifetime lifetime,
         ILogger<WaypointRecorder> logger,
         StartArmed? startArmed = null
     )
@@ -59,12 +58,25 @@ public sealed class WaypointRecorder : BackgroundService
         _target = target;
         _state = state;
         _options = options;
-        _lifetime = lifetime;
         _logger = logger;
     }
 
-    /// <summary>Raised whenever the recorded route changes.</summary>
+    /// <summary>Raised whenever the recorded route changes, or the recorder becomes usable.</summary>
     public event Action? Changed;
+
+    /// <summary>Gets a value indicating whether a game window was found, so F9 can do anything.</summary>
+    public bool Available
+    {
+        get => _available;
+        private set
+        {
+            _available = value;
+            Changed?.Invoke();
+        }
+    }
+
+    /// <summary>Gets the reason recording is unavailable, when it is.</summary>
+    public string? UnavailableReason { get; private set; }
 
     /// <summary>Gets or sets a value indicating whether F9 records a waypoint.</summary>
     /// <remarks>
@@ -145,26 +157,41 @@ public sealed class WaypointRecorder : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Recording is an optional convenience, so every way it can fail ends in a warning and a
+        // recorder that reports itself unavailable - never in stopping the host. Taking the whole
+        // bot down because a route cannot be recorded is a far worse outcome than not recording one.
         if (!OperatingSystem.IsWindows())
         {
-            _logger.LogError("Recording a route reads the mouse position and is Windows only.");
-            _lifetime.StopApplication();
+            Unavailable("recording a route reads the mouse position, which is Windows only");
             return;
         }
 
-        if (_target.Process is not { } process || process.MainWindowHandle == IntPtr.Zero)
+        if (_target.Process is not { } process)
         {
-            _logger.LogError("No game window to record against.");
-            _lifetime.StopApplication();
+            Unavailable("no game process is bound; start in --pcap mode");
             return;
         }
 
-        var window = process.MainWindowHandle;
+        // The same window the keystrokes go to, found the same way. MainWindowHandle is a different
+        // window on this client, so trusting it would record pixels measured against something the
+        // minimap is not even drawn on.
+        var (window, className) = GameWindowFinder.Find(process.Id, process.MainWindowHandle);
+
+        if (window == IntPtr.Zero)
+        {
+            Unavailable($"process {process.ProcessName} (pid {process.Id}) exposes no usable window");
+            return;
+        }
+
+        Available = true;
 
         _logger.LogInformation
         (
-            "Waypoint recorder ready. Arm it in the window (or start with --record-waypoints), " +
-            "then: stand on a spot, point at it on the minimap, press F9. F10 saves the route."
+            "Waypoint recorder ready on window 0x{Handle:X} (class \"{Class}\"). Arm it in the window " +
+            "(or start with --record-waypoints), then: stand on a spot, point at it on the minimap, " +
+            "press F9. F10 saves the route.",
+            window.ToInt64(),
+            className
         );
 
         var f9WasDown = false;
@@ -178,14 +205,30 @@ public sealed class WaypointRecorder : BackgroundService
                 var f10 = IsDown(VkF10);
 
                 // Edge detection: a held key must record one waypoint, not fifty.
-                if (_armed && f9 && !f9WasDown)
+                if (f9 && !f9WasDown)
                 {
-                    Capture(window);
+                    if (_armed)
+                    {
+                        Capture(window);
+                    }
+                    else
+                    {
+                        // Silence here reads as a broken feature. F9 is an ordinary game key, so it
+                        // stays inert until armed - but saying so once beats saying nothing.
+                        WarnDisarmed("F9");
+                    }
                 }
 
-                if (_armed && f10 && !f10WasDown)
+                if (f10 && !f10WasDown)
                 {
-                    Finish();
+                    if (_armed)
+                    {
+                        Finish();
+                    }
+                    else
+                    {
+                        WarnDisarmed("F10");
+                    }
                 }
 
                 f9WasDown = f9;
@@ -277,6 +320,30 @@ public sealed class WaypointRecorder : BackgroundService
             route.Count,
             path,
             string.Join(" -> ", route.Select(w => w.ToString()))
+        );
+    }
+
+    private void Unavailable(string reason)
+    {
+        UnavailableReason = reason;
+        Available = false;
+        _logger.LogWarning("Waypoint recording is unavailable: {Reason}. The bot keeps running.", reason);
+    }
+
+    private void WarnDisarmed(string key)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (now < _nextDisarmedWarning)
+        {
+            return;
+        }
+
+        _nextDisarmedWarning = now.AddSeconds(5);
+        _logger.LogWarning
+        (
+            "{Key} pressed, but waypoint recording is not armed - nothing was recorded. " +
+            "Click \"Armer l'enregistrement (F9)\" in the window first.",
+            key
         );
     }
 

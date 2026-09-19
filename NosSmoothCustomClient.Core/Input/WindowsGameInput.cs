@@ -38,7 +38,7 @@ public sealed class WindowsGameInput : IGameInput
     /// tooling for this game addresses this class by name, which is a strong signal it is the right
     /// one.
     /// </remarks>
-    public const string GameWindowClass = "TNosTaleMainF";
+    public const string GameWindowClass = GameWindowFinder.GameWindowClass;
 
     private readonly CaptureTarget _target;
     private readonly ILogger<WindowsGameInput> _logger;
@@ -196,53 +196,7 @@ public sealed class WindowsGameInput : IGameInput
     /// <param name="fallback">The handle to use when no better candidate is found.</param>
     /// <returns>The chosen handle and its class name.</returns>
     private static (IntPtr Handle, string ClassName) FindGameWindow(int processId, IntPtr fallback)
-    {
-        var byClass = IntPtr.Zero;
-        var nearMiss = IntPtr.Zero;
-        var nearMissClass = string.Empty;
-
-        EnumWindows((handle, _) =>
-        {
-            GetWindowThreadProcessId(handle, out var owner);
-            if (owner != processId)
-            {
-                return true;
-            }
-
-            var name = ReadClassName(handle);
-
-            if (string.Equals(name, GameWindowClass, StringComparison.Ordinal))
-            {
-                byClass = handle;
-                return false;
-            }
-
-            if (nearMiss == IntPtr.Zero && name.Contains("NosTale", StringComparison.OrdinalIgnoreCase))
-            {
-                nearMiss = handle;
-                nearMissClass = name;
-            }
-
-            return true;
-        }, IntPtr.Zero);
-
-        if (byClass != IntPtr.Zero)
-        {
-            return (byClass, GameWindowClass);
-        }
-
-        return nearMiss != IntPtr.Zero
-            ? (nearMiss, nearMissClass)
-            : (fallback, fallback == IntPtr.Zero ? string.Empty : ReadClassName(fallback));
-    }
-
-    private static string ReadClassName(IntPtr handle)
-    {
-        var buffer = new System.Text.StringBuilder(256);
-        var length = GetClassName(handle, buffer, buffer.Capacity);
-        return length > 0 ? buffer.ToString(0, length) : string.Empty;
-    }
-
+        => GameWindowFinder.Find(processId, fallback);
     /// <summary>
     /// Reads the game window's size, for reporting and for sanity-checking click coordinates.
     /// </summary>
@@ -270,18 +224,6 @@ public sealed class WindowsGameInput : IGameInput
 
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKey(uint code, uint mapType);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int processId);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder buffer, int maxCount);
-
-    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
