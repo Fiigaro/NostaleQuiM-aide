@@ -77,7 +77,9 @@ public sealed class MainWindow : Window
     private readonly Button _clearRoute = new() { Content = "Effacer", Width = 90, Height = 28 };
     private readonly Button _testClick = new() { Content = "Tester le clic (point 1)", Width = 190, Height = 28 };
     private readonly Button _probeClick = new() { Content = "Sonder les fenêtres", Width = 170, Height = 28 };
+    private readonly Button _useProbed = new() { Content = "Garder celle-ci", Width = 140, Height = 28, IsEnabled = false };
     private int _probeIndex;
+    private (IntPtr Handle, string ClassName)? _lastProbed;
 
     private readonly NumericUpDown _arrivalRadius = new()
     {
@@ -189,6 +191,7 @@ public sealed class MainWindow : Window
         _clearRoute.Click += (_, _) => ClearRoute();
         _testClick.Click += (_, _) => TestClick();
         _probeClick.Click += (_, _) => ProbeClick();
+        _useProbed.Click += (_, _) => UseProbedWindow();
 
         _arrivalRadius.Value = _options.WaypointArrivalRadius;
         _arrivalRadius.ValueChanged += (_, e) =>
@@ -988,6 +991,7 @@ public sealed class MainWindow : Window
         actions.Children.Add(_clearRoute);
         actions.Children.Add(_testClick);
         actions.Children.Add(_probeClick);
+        actions.Children.Add(_useProbed);
         actions.Children.Add(_routeStatus);
 
         panel.Children.Add(actions);
@@ -1143,6 +1147,8 @@ public sealed class MainWindow : Window
         _probeIndex++;
 
         var sent = _input.ProbeClick(handle, x, y);
+        _lastProbed = sent ? (handle, className) : null;
+        _useProbed.IsEnabled = sent;
 
         _routeStatus.Text = sent
             ? $"essai {index + 1}/{candidates.Count} : « {className} » (niveau {depth}) — le personnage part ?"
@@ -1159,6 +1165,28 @@ public sealed class MainWindow : Window
                 ? $"Clic posté à 0x{handle.ToInt64():X} (« {className} », niveau {depth}), essai {index + 1}/{candidates.Count}."
                 : $"Le message a été refusé par 0x{handle.ToInt64():X} (« {className} »)."
         ));
+    }
+
+    /// <summary>
+    /// Keeps the window the last probe used as the one every click goes to.
+    /// </summary>
+    /// <remarks>
+    /// Only the operator can tell which probe moved the character - PostMessage reports queued, not
+    /// acted on - so the choice is theirs to confirm, one press after the one that worked.
+    /// </remarks>
+    private void UseProbedWindow()
+    {
+        if (_input is null || _lastProbed is not { } probed)
+        {
+            return;
+        }
+
+        _input.UseClickWindow(probed.Handle, probed.ClassName);
+
+        _routeStatus.Text = $"clics envoyés à « {probed.ClassName} » en messages postés — "
+                            + "le jeu peut rester en arrière-plan";
+
+        _routeStatus.Foreground = Ready;
     }
 
     private void SaveRoute()

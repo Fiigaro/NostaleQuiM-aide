@@ -49,7 +49,8 @@ public static class CombatSelfCheck
             await UnknownPositionStillStartsWalkingAsync().ConfigureAwait(false),
             await RouteGoingNowhereIsReportedAsync().ConfigureAwait(false),
             await TheGamesOwnTargetIsAdoptedAsync().ConfigureAwait(false),
-            await UnreachableWaypointIsSkippedAsync().ConfigureAwait(false)
+            await UnreachableWaypointIsSkippedAsync().ConfigureAwait(false),
+            await WorkingClicksAreNotBlamedWithoutAPositionAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -262,6 +263,27 @@ public static class CombatSelfCheck
         var cast = actuator.Calls.Any(c => c.StartsWith("skill:", StringComparison.Ordinal));
 
         return ("la cible choisie par le jeu est adoptee", locked && cast && rotation is not null);
+    }
+
+    private static async Task<(string, bool)> WorkingClicksAreNotBlamedWithoutAPositionAsync()
+    {
+        var (loop, _, _, actuator, options) = Build(selectsTargetItself: true, withPosition: false);
+        options.Waypoints = new List<Waypoint> { new(80, 80, 400, 300), new(120, 120, 410, 310) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+        options.WalkReissueInterval = TimeSpan.FromMilliseconds(50);
+
+        // The server never says where the character is, so the position holds at (0,0) whatever
+        // happens. Read as "has not moved", that condemns a click the client is obeying: the bot
+        // changes how it clicks, then abandons the waypoint, over something it cannot see.
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(70).ConfigureAwait(false);
+        }
+
+        var stayedOnCourse = !actuator.Calls.Contains("waypoint:1");
+        return ("sans position, un clic qui marche n'est pas accuse", actuator.Escalations == 0 && stayedOnCourse);
     }
 
     private static async Task<(string, bool)> UnreachableWaypointIsSkippedAsync()

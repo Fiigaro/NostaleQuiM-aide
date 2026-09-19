@@ -562,6 +562,15 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return true;
         }
 
+        // Without a position, "has not moved" is not something we know - it is something we cannot
+        // see. An unreported position holds still at (0,0) whatever the character does, so judging
+        // the order by it condemns clicks that are working: that is how a click the client accepted
+        // ended up blamed, escalated away from, and finally abandoned along with its waypoint.
+        if (!_state.HasPosition)
+        {
+            return false;
+        }
+
         if (position != _walkedFrom)
         {
             // Moving. Reset the stall clock against where we are now.

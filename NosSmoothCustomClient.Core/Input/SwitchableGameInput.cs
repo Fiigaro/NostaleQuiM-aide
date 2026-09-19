@@ -47,6 +47,31 @@ public sealed class SwitchableGameInput : IGameInput
     /// <summary>Gets how minimap clicks are currently delivered.</summary>
     public MinimapClickMode ClickMode => _live.ClickMode;
 
+    /// <summary>
+    /// Sends every later click to this window, and stops using the real cursor.
+    /// </summary>
+    /// <param name="target">The window found to act on posted clicks.</param>
+    /// <param name="className">Its class, for the log.</param>
+    /// <remarks>
+    /// Finding a window that listens is what makes posted clicks usable, and posted clicks are what
+    /// let several clients be driven at once - the real pointer is one, and three bots sharing it
+    /// have to take turns with the game in front.
+    /// </remarks>
+    public void UseClickWindow(IntPtr target, string className)
+    {
+        _live.ClickWindow = target;
+        _live.ClickMode = MinimapClickMode.Posted;
+        _clickModePinned = true;
+
+        _logger.LogInformation
+        (
+            "Minimap clicks now go to window 0x{Handle:X} (\"{Class}\") as posted messages. " +
+            "The real cursor is no longer needed, so the game can stay in the background.",
+            target.ToInt64(),
+            className
+        );
+    }
+
     /// <summary>Lists the windows a posted click could go to.</summary>
     public IReadOnlyList<(IntPtr Handle, string ClassName, int Depth)> ClickCandidates()
         => _live.ClickCandidates();

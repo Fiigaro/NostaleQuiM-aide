@@ -67,6 +67,16 @@ public sealed class WindowsGameInput : IGameInput
     /// <summary>Gets or sets how a minimap click is delivered.</summary>
     public MinimapClickMode ClickMode { get; set; } = MinimapClickMode.Posted;
 
+    /// <summary>
+    /// Gets or sets the window posted clicks go to, when it is not the bound one.
+    /// </summary>
+    /// <remarks>
+    /// A Delphi client renders into a child window, and it can be that child rather than the form
+    /// that acts on mouse messages. Which one is a property of the build, discovered by trying, so
+    /// it is remembered here rather than guessed at every click.
+    /// </remarks>
+    public IntPtr ClickWindow { get; set; } = IntPtr.Zero;
+
     /// <inheritdoc />
     public bool TryAttach(out string error)
     {
@@ -210,7 +220,9 @@ public sealed class WindowsGameInput : IGameInput
             return false;
         }
 
-        return PostClickRaw(_window, x, y);
+        return ClickWindow == IntPtr.Zero || ClickWindow == _window
+            ? PostClickRaw(_window, x, y)
+            : PostClickTo(ClickWindow, x, y);
     }
 
     private bool PostClickRaw(IntPtr window, int x, int y)
