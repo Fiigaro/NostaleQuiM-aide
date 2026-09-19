@@ -288,6 +288,18 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             _rotation.MarkPressed(skill);
         }
 
+        // Claiming the tick while a target is alive starves navigation completely, and in a room
+        // full of monsters a target is always alive - so the bot attacked forever and never moved
+        // an inch. Holding one is not headway: the attack key only reaches what is already close,
+        // so the cluster within reach dies and the rest of the room waits for a character that has
+        // no reason left to walk. Yielding the tick once the fight stops getting anywhere is what
+        // sends it to the next cluster.
+        if (_state.FightStalled(_options.RepositionAfter))
+        {
+            Decide(3, "engagement: plus rien ne tombe ici depuis {0:0}s - on se replace", _options.RepositionAfter.TotalSeconds);
+            return false;
+        }
+
         return true;
     }
 

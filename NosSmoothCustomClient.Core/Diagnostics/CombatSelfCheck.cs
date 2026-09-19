@@ -56,7 +56,8 @@ public static class CombatSelfCheck
             await ClearedRoomHeadsForTheExitAsync().ConfigureAwait(false),
             await ClearedRoomStopsHuntingAsync().ConfigureAwait(false),
             await BasicAttackFiresEvenWithSkillsReadyAsync().ConfigureAwait(false),
-            RouteIsStampedWhereItsPointsWereTaken()
+            RouteIsStampedWhereItsPointsWereTaken(),
+            await AStalledFightGivesWayToMovingAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -286,6 +287,34 @@ public static class CombatSelfCheck
         state.UpdatePosition(13, 14);
 
         return (loop, state, actuator, options);
+    }
+
+    private static async Task<(string, bool)> AStalledFightGivesWayToMovingAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+        options.Waypoints = new List<Waypoint> { new(13, 14, 1351, 100), new(14, 1, 1354, 36) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+        options.RepositionAfter = TimeSpan.FromMilliseconds(120);
+
+        state.EnterMap(4103);
+        state.UpdatePosition(13, 14);
+        Engage(state);
+
+        // A live target and nothing else happening, which in a room full of monsters is every tick.
+        // Attacking must not be allowed to claim them all, or the character never leaves the spot
+        // and the rest of the room is never reached.
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var heldTheTickWhileProgressing = !actuator.Calls.Any(c => c.StartsWith("waypoint:", StringComparison.Ordinal));
+
+        await Task.Delay(200).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        var attacked = actuator.Calls.Contains("basic");
+        var moved = actuator.Calls.Any(c => c.StartsWith("waypoint:", StringComparison.Ordinal));
+
+        return ("un combat qui n'avance plus laisse la place au déplacement",
+            heldTheTickWhileProgressing && attacked && moved);
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()

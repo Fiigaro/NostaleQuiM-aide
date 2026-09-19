@@ -164,6 +164,17 @@ public sealed class BotOptions
     public TimeSpan WalkReissueInterval { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
+    /// Gets or sets how long a fight may get nowhere before the bot goes and stands elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// Holding a target is not the same as making headway. The attack key only ever finds what is
+    /// already close, so a room is cleared in clusters and the last one reached is the only one that
+    /// dies - unless something moves the character. Nothing dying and the lock not moving for this
+    /// long is what says the spot is finished.
+    /// </remarks>
+    public TimeSpan RepositionAfter { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// Gets or sets how long a target may go unmentioned by the server before it is dropped.
     /// </summary>
     /// <remarks>

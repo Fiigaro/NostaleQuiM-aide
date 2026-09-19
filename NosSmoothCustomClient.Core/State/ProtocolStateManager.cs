@@ -75,6 +75,9 @@ public sealed class ProtocolStateManager
     private long _lastWalkStamp;
     private long _lastSearchStamp;
 
+    // When the fight last got anywhere: something died, or the lock moved to another monster.
+    private long _lastFightProgressStamp;
+
     // When the server last said anything about the target. Zero means "never".
     private long _lastTargetStamp;
 
@@ -296,6 +299,25 @@ public sealed class ProtocolStateManager
     {
         _entities.TryRemove(entityId, out _);
         ClearTarget(entityId);
+        Interlocked.Exchange(ref _lastFightProgressStamp, Stopwatch.GetTimestamp());
+    }
+
+    /// <summary>
+    /// Reports whether the fight has stopped getting anywhere.
+    /// </summary>
+    /// <param name="after">How long without progress counts.</param>
+    /// <returns>True when nothing has died and the lock has not moved for that long.</returns>
+    /// <remarks>
+    /// Swinging is not progress. A character can hold a target and attack for as long as you like
+    /// without the room emptying - the monster is out of reach, or the ones left are, and the
+    /// attack key only ever finds what is already close. Something dying, or the lock moving to
+    /// another monster, is what says the spot is still worth standing on; the absence of both is
+    /// what says to go somewhere else.
+    /// </remarks>
+    public bool FightStalled(TimeSpan after)
+    {
+        var last = Interlocked.Read(ref _lastFightProgressStamp);
+        return last != 0 && Stopwatch.GetElapsedTime(last, Stopwatch.GetTimestamp()) > after;
     }
 
     /// <summary>
@@ -373,6 +395,7 @@ public sealed class ProtocolStateManager
 
             _target = new TargetSnapshot(entityId, entityType, -1, hpPercentage);
             Interlocked.Exchange(ref _lastTargetStamp, Stopwatch.GetTimestamp());
+            Interlocked.Exchange(ref _lastFightProgressStamp, Stopwatch.GetTimestamp());
             return true;
         }
     }
