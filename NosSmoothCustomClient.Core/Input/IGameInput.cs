@@ -44,7 +44,11 @@ public interface IGameInput
 public readonly record struct GameKey(string Label, ushort VirtualKey)
 {
     /// <summary>Space, which on this server selects and attacks the nearest monster.</summary>
-    public static GameKey Space => new(" ", 0x20);
+    /// <remarks>
+    /// Named rather than written as " ": a log line ending in an invisible character reads as a
+    /// missing value, which is the opposite of what it means.
+    /// </remarks>
+    public static GameKey Space => new("espace", 0x20);
 
     /// <summary>
     /// Parses a key from configuration.
@@ -63,7 +67,10 @@ public readonly record struct GameKey(string Label, ushort VirtualKey)
 
         var trimmed = text.Trim();
 
-        if (trimmed.Equals("space", StringComparison.OrdinalIgnoreCase) || trimmed == " ")
+        // Both spellings: "space" is what the config file has always used, "espace" is what the
+        // window and the logs now show, and a value read back from either has to parse.
+        if (trimmed.Equals("space", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("espace", StringComparison.OrdinalIgnoreCase))
         {
             key = Space;
             return true;

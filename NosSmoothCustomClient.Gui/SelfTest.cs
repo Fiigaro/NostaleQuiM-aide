@@ -161,7 +161,14 @@ public static class SelfTest
             ("champs de touches", textBoxes.Count >= 4),
             ("modifier une touche change les options", keyEditWorks),
             ("section route rendue", texts.Any(t => t.Contains("aucun point") || t.Contains("carte ("))),
-            ("boutons d'action présents", visuals.OfType<Button>().Count() >= 4)
+            ("boutons d'action présents", visuals.OfType<Button>().Count() >= 4),
+
+            // Le panneau qui dit pourquoi le bot n'agit pas. Il doit nommer la cause, pas seulement
+            // exister : une ligne rouge sans raison ne vaut pas mieux que le silence.
+            ("diagnostic rendu", texts.Any(t => t.Contains("Cibler et attaquer"))),
+            ("diagnostic explique les blocages", BotReadiness.Describe(options, state, null)
+                .Where(i => !i.Ready)
+                .All(i => !string.IsNullOrWhiteSpace(i.Detail) && texts.Contains(i.Detail)))
         };
 
         var failed = 0;

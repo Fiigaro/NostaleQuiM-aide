@@ -35,6 +35,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private int _walkingTo = -1;
     private Waypoint _walkedFrom;
     private DateTimeOffset _walkedAt;
+    private DateTimeOffset _nextRefusalWarning = DateTimeOffset.MinValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationBackgroundService"/> class.
@@ -434,11 +435,40 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
         LogPriority(4, "navigation: at ({0},{1}), heading for {2}, {3} cells away", position.X, position.Y, waypoint, distance);
 
-        await _actuator.GoToWaypointAsync(index, ct).ConfigureAwait(false);
+        if (!await _actuator.GoToWaypointAsync(index, ct).ConfigureAwait(false))
+        {
+            // The order was refused, so there is no journey to be patient about. Saying so matters:
+            // a waypoint with no minimap point can never be walked to, and a bot that stands still
+            // reporting "heading for" every tick is indistinguishable from one that is broken.
+            ReportWaypointRefused(index, waypoint);
+            _walkingTo = -1;
+            return;
+        }
 
         _walkingTo = index;
         _walkedFrom = position;
         _walkedAt = DateTimeOffset.UtcNow;
+    }
+
+    private void ReportWaypointRefused(int index, Waypoint waypoint)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (now < _nextRefusalWarning)
+        {
+            return;
+        }
+
+        _nextRefusalWarning = now.AddSeconds(10);
+
+        _logger.LogWarning
+        (
+            waypoint.IsClickable
+                ? "Waypoint {Index} {Waypoint} could not be reached: the click was refused - is the game window still bound?"
+                : "Waypoint {Index} {Waypoint} has no minimap click point, so the bot cannot walk anywhere. "
+                  + "Record a route: arm F9 in the window, stand on a spot, point at it on the minimap, press F9, then F10.",
+            index + 1,
+            waypoint
+        );
     }
 
     /// <summary>

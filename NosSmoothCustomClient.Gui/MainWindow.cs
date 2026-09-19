@@ -68,6 +68,7 @@ public sealed class MainWindow : Window
     private readonly Button _clearRoute = new() { Content = "Effacer", Width = 90, Height = 28 };
     private readonly Button _saveRoute = new() { Content = "Enregistrer la route", Width = 170, Height = 28 };
     private readonly StackPanel _routeList = new() { Spacing = 3 };
+    private readonly StackPanel _readiness = new() { Spacing = 3 };
     private readonly TextBlock _routeStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBox _keyAttack = KeyBox();
     private readonly TextBox _keyLoot = KeyBox();
@@ -263,6 +264,7 @@ public sealed class MainWindow : Window
         RefreshSkills();
         RefreshBuffs();
         RefreshRoute();
+        RefreshReadiness();
         RefreshLog();
     }
 
@@ -405,17 +407,18 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             Margin = new Thickness(14),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto")
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto")
         };
 
         grid.Children.Add(Place(BuildHeader(), 0));
         grid.Children.Add(Place(BuildVitals(), 1));
         grid.Children.Add(Place(BuildInfo(), 2));
-        grid.Children.Add(Place(Section("Touches", BuildKeySection()), 3));
-        grid.Children.Add(Place(Section("Rotation", BuildSkillSection()), 4));
-        grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 5));
-        grid.Children.Add(Place(Section("Route de patrouille", BuildRouteSection()), 6));
-        grid.Children.Add(Place(Section("Journal", _logScroll), 7));
+        grid.Children.Add(Place(Section("Ce que le bot peut faire", BuildReadinessSection()), 3));
+        grid.Children.Add(Place(Section("Touches", BuildKeySection()), 4));
+        grid.Children.Add(Place(Section("Rotation", BuildSkillSection()), 5));
+        grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 6));
+        grid.Children.Add(Place(Section("Route de patrouille", BuildRouteSection()), 7));
+        grid.Children.Add(Place(Section("Journal", _logScroll), 8));
 
         return new ScrollViewer
         {
@@ -807,6 +810,67 @@ public sealed class MainWindow : Window
                 MarkDirty();
             }
         };
+
+    private Control BuildReadinessSection()
+    {
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(Note
+        (
+            "Chaque ligne rouge est une chose que le bot ne fera pas, avec la raison. "
+            + "Un bot qui ne bouge pas se lit ici, pas dans le journal."
+        ));
+
+        panel.Children.Add(_readiness);
+        return panel;
+    }
+
+    private void RefreshReadiness()
+    {
+        var items = BotReadiness.Describe(_options, _state, _input);
+
+        // Rebuilt rather than patched: the list is short, and every row's text can change with the
+        // state it describes.
+        _readiness.Children.Clear();
+
+        foreach (var item in items)
+        {
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("14,200,*") };
+
+            var dot = new TextBlock
+            {
+                Text = item.Ready ? "●" : "●",
+                Foreground = item.Ready ? Ready : Blocked,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var name = new TextBlock
+            {
+                Text = item.Name,
+                Foreground = Ink,
+                FontSize = 11.5,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var detail = new TextBlock
+            {
+                Text = item.Detail,
+                Foreground = item.Ready ? Muted : Blocked,
+                FontSize = 11.5,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            Grid.SetColumn(dot, 0);
+            Grid.SetColumn(name, 1);
+            Grid.SetColumn(detail, 2);
+            row.Children.Add(dot);
+            row.Children.Add(name);
+            row.Children.Add(detail);
+
+            _readiness.Children.Add(row);
+        }
+    }
 
     private Control BuildKeySection()
     {

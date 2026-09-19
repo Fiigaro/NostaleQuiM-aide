@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using NosSmooth.Core.Client;
 using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.Configuration;
+using NosSmoothCustomClient.Diagnostics;
+using NosSmoothCustomClient.State;
 
 namespace NosSmoothCustomClient.Client;
 
@@ -45,9 +47,29 @@ public static class TransportBinder
                 return false;
             }
 
-            services.GetRequiredService<ILoggerFactory>()
-                .CreateLogger(typeof(TransportBinder))
-                .LogInformation("Ready to act through {Actuator}.", actuator.Description);
+            var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(TransportBinder));
+            logger.LogInformation("Ready to act through {Actuator}.", actuator.Description);
+
+            // Say up front what will and will not happen. Every silent failure so far has been a
+            // capability that was simply not configured, with nothing anywhere saying which.
+            var readiness = BotReadiness.Describe
+            (
+                services.GetRequiredService<BotOptions>(),
+                services.GetRequiredService<ProtocolStateManager>(),
+                services.GetService<SwitchableGameInput>()
+            );
+
+            foreach (var item in readiness)
+            {
+                if (item.Ready)
+                {
+                    logger.LogInformation("READY   | {Name}: {Detail}", item.Name, item.Detail);
+                }
+                else
+                {
+                    logger.LogWarning("BLOCKED | {Name}: {Detail}", item.Name, item.Detail);
+                }
+            }
 
             error = string.Empty;
             return true;
