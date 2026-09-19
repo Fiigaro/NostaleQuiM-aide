@@ -100,6 +100,10 @@ public static class BotServiceRegistration
         services.AddPacketResponder<TargetHpResponder>();
         services.AddPacketResponder<PositionTrackingResponder>();
         services.AddPacketResponder<MapResponder>();
+
+        // Always registered, recording or not: responders write into it unconditionally and it is
+        // inert until a run is being recorded.
+        services.TryAddSingleton<RunJournal>();
         services.AddPacketResponder<SkillResponder>();
         services.AddPacketResponder<BuffResponder>();
         services.AddPacketResponder<QuiMStatResponder>();

@@ -248,7 +248,7 @@ public static class CombatSelfCheck
     private static async Task<(string, bool)> TheGamesOwnTargetIsAdoptedAsync()
     {
         var (loop, state, rotation, actuator, options) = Build(selectsTargetItself: true);
-        var responder = new TargetHpResponder(state, NullLogger<TargetHpResponder>.Instance);
+        var responder = new TargetHpResponder(state, new RunJournal(), NullLogger<TargetHpResponder>.Instance);
 
         state.SetOwnCharacterId(1234);
 

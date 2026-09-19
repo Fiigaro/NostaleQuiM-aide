@@ -32,6 +32,7 @@ public sealed class RunRecorder : BackgroundService
 
     private readonly CaptureTarget _target;
     private readonly ProtocolStateManager _state;
+    private readonly RunJournal _journal;
     private readonly ILogger<RunRecorder> _logger;
 
     private readonly List<RunEvent> _events = new();
@@ -51,10 +52,11 @@ public sealed class RunRecorder : BackgroundService
     /// <param name="target">The captured game process.</param>
     /// <param name="state">The state manager.</param>
     /// <param name="logger">The logger.</param>
-    public RunRecorder(CaptureTarget target, ProtocolStateManager state, ILogger<RunRecorder> logger)
+    public RunRecorder(CaptureTarget target, ProtocolStateManager state, RunJournal journal, ILogger<RunRecorder> logger)
     {
         _target = target;
         _state = state;
+        _journal = journal;
         _logger = logger;
     }
 
@@ -91,6 +93,7 @@ public sealed class RunRecorder : BackgroundService
         if (_recording)
         {
             _recording = false;
+            _journal.Enabled = false;
             _logger.LogInformation("Run recording stopped: {Count} event(s).", Events.Count);
             Changed?.Invoke();
             return false;
@@ -105,6 +108,8 @@ public sealed class RunRecorder : BackgroundService
         _lastTarget = null;
         _lastMonsters = -1;
         _startedAt = Stopwatch.GetTimestamp();
+        _journal.Clear();
+        _journal.Enabled = true;
         _recording = true;
 
         _logger.LogInformation
@@ -215,6 +220,7 @@ public sealed class RunRecorder : BackgroundService
 
                 if (_recording)
                 {
+                    DrainJournal();
                     SampleState();
                     SampleInput(window, down);
                 }
@@ -270,6 +276,14 @@ public sealed class RunRecorder : BackgroundService
             }
 
             Record(RunEventKind.Click, button == VkLButton ? "clic gauche" : "clic droit", cursor.X, cursor.Y);
+        }
+    }
+
+    private void DrainJournal()
+    {
+        foreach (var note in _journal.Drain())
+        {
+            Record(RunEventKind.State, note, null, null);
         }
     }
 

@@ -3,6 +3,7 @@ using NosSmooth.Core.Packets;
 using NosSmooth.Packets.Enums.Entities;
 using NosSmooth.Packets.Server.Maps;
 using NosSmoothCustomClient.Configuration;
+using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.State;
 using Remora.Results;
 
@@ -24,6 +25,7 @@ public sealed class EntitySpawnResponder :
 {
     private readonly ProtocolStateManager _state;
     private readonly BotOptions _options;
+    private readonly RunJournal _journal;
     private readonly ILogger<EntitySpawnResponder> _logger;
 
     /// <summary>
@@ -32,10 +34,17 @@ public sealed class EntitySpawnResponder :
     /// <param name="state">The state manager.</param>
     /// <param name="options">The bot options.</param>
     /// <param name="logger">The logger.</param>
-    public EntitySpawnResponder(ProtocolStateManager state, BotOptions options, ILogger<EntitySpawnResponder> logger)
+    public EntitySpawnResponder
+    (
+        ProtocolStateManager state,
+        BotOptions options,
+        RunJournal journal,
+        ILogger<EntitySpawnResponder> logger
+    )
     {
         _state = state;
         _options = options;
+        _journal = journal;
         _logger = logger;
     }
 
@@ -54,6 +63,9 @@ public sealed class EntitySpawnResponder :
 
         if (packet.EntityType != EntityType.Monster || hpPercentage == 0)
         {
+            // Everything that is not a monster: the portal that opens when a room is cleared shows
+            // up this way, and a recorded run has no other way to point at it.
+            _journal.Note($"apparition {packet.EntityType} #{packet.EntityId} VNum {packet.VNum} en ({packet.PositionX},{packet.PositionY})");
             return Task.FromResult(Result.FromSuccess());
         }
 
@@ -104,6 +116,10 @@ public sealed class EntitySpawnResponder :
             _logger.LogInformation("Target #{EntityId} left the map - resuming scanning.", packet.EntityId);
         }
 
+        // Said plainly because it is constantly mistaken for a death: out is what the server sends
+        // when an entity leaves view. A count built from it follows the character, not the fight.
+        _journal.Note($"hors de vue #{packet.EntityId}");
+
         _state.ForgetEntity(packet.EntityId);
         return Task.FromResult(Result.FromSuccess());
     }
@@ -111,6 +127,11 @@ public sealed class EntitySpawnResponder :
     /// <inheritdoc />
     public Task<Result> Respond(PacketEventArgs<MapclearPacket> packetArgs, CancellationToken ct = default)
     {
+        // The one that empties the table in a single step. A room's monsters never go from dozens
+        // to none by being killed, so a count reaching zero means this packet far more often than
+        // it means the fight is over - which is exactly the pair a recorded run has to tell apart.
+        _journal.Note("mapclear : toutes les entités effacées d'un coup");
+
         _logger.LogInformation("Map cleared - dropping every tracked entity.");
         _state.ForgetAllEntities();
         return Task.FromResult(Result.FromSuccess());

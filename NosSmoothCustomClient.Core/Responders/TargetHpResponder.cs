@@ -4,6 +4,7 @@ using NosSmooth.Packets.Enums.Entities;
 using NosSmooth.Packets.Server.Battle;
 using NosSmooth.Packets.Server.Entities;
 using NosSmoothCustomClient.Packets;
+using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.State;
 using Remora.Results;
 
@@ -28,6 +29,7 @@ public sealed class TargetHpResponder :
     IPacketResponder<QuiMTargetPacket>
 {
     private readonly ProtocolStateManager _state;
+    private readonly RunJournal _journal;
     private readonly ILogger<TargetHpResponder> _logger;
 
     /// <summary>
@@ -35,9 +37,10 @@ public sealed class TargetHpResponder :
     /// </summary>
     /// <param name="state">The state manager.</param>
     /// <param name="logger">The logger.</param>
-    public TargetHpResponder(ProtocolStateManager state, ILogger<TargetHpResponder> logger)
+    public TargetHpResponder(ProtocolStateManager state, RunJournal journal, ILogger<TargetHpResponder> logger)
     {
         _state = state;
+        _journal = journal;
         _logger = logger;
     }
 
@@ -137,6 +140,10 @@ public sealed class TargetHpResponder :
 
     private void ReportKill(long entityId, string reason)
     {
+        // A death, as opposed to something merely walking out of view. Only this one counts towards
+        // a room being cleared.
+        _journal.Note($"mort #{entityId} ({reason})");
+
         var wasTarget = _state.ClearTarget(entityId);
         _state.ForgetEntity(entityId);
 
