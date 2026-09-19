@@ -36,6 +36,17 @@ public interface IBotActuator
     /// </remarks>
     bool SelectsTargetItself { get; }
 
+    /// <summary>
+    /// Gets a value indicating whether one movement order walks the whole path.
+    /// </summary>
+    /// <remarks>
+    /// A minimap click is a destination: the client walks there on its own and re-issuing the order
+    /// every tick only restarts it, which is what makes a bot stutter in place instead of
+    /// travelling. A walk packet is one step, so it has to be repeated. The loop has to know which
+    /// of the two it is holding, or it either stutters or never moves.
+    /// </remarks>
+    bool WalkIsSustained { get; }
+
     /// <summary>Takes one step towards a cell.</summary>
     /// <param name="x">Destination X.</param>
     /// <param name="y">Destination Y.</param>

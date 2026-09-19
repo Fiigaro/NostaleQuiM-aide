@@ -113,6 +113,11 @@ public sealed class TargetHpResponder :
 
         if (wasTarget)
         {
+            // Look for the next one immediately rather than after the search interval, which the
+            // navigation priority would otherwise spend walking away from a spot still worth
+            // farming.
+            _state.ResetSearchGate();
+
             _logger.LogInformation
             (
                 "Target #{EntityId} is down ({Reason}). Lock cleared, skipping ground loot (server auto-loot), resuming scan.",

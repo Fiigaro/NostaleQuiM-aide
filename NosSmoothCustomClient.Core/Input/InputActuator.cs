@@ -44,6 +44,9 @@ public sealed class InputActuator : IBotActuator
     public bool SelectsTargetItself => true;
 
     /// <inheritdoc />
+    public bool WalkIsSustained => true;
+
+    /// <inheritdoc />
     public Task<bool> ApproachAsync(int x, int y, CancellationToken ct = default)
         => Task.FromResult(false);
 
@@ -128,24 +131,36 @@ public sealed class InputActuator : IBotActuator
             return Task.FromResult(false);
         }
 
-        return Task.FromResult(_input.ClickAt(x, y));
+        // Paced like a keystroke, and through the same lock. The client is one input queue: a click
+        // landing in the same millisecond as a key press is how a walk order and an attack end up
+        // cancelling each other.
+        return PacedAsync(() => _input.ClickAt(x, y), $"minimap click ({x},{y})", ct);
     }
 
     /// <summary>
-    /// Presses a key, never faster than the configured gap.
+    /// Presses a bound key, or does nothing when nothing is bound to it.
     /// </summary>
-    /// <remarks>
-    /// The pacing lives here rather than in the decision loop on purpose: how fast a client can be
-    /// typed at is a property of the client, not of what the bot decided to do.
-    /// </remarks>
-    private async Task<bool> PressAsync(string? binding, string what, CancellationToken ct)
+    private Task<bool> PressAsync(string? binding, string what, CancellationToken ct)
     {
         if (!GameKey.TryParse(binding, out var key))
         {
             _logger.LogDebug("No key bound for {What}, skipping.", what);
-            return false;
+            return Task.FromResult(false);
         }
 
+        return PacedAsync(() => _input.PressKey(key), $"{what} ({key.Label})", ct);
+    }
+
+    /// <summary>
+    /// Sends one input, never closer to the last one than the configured gap.
+    /// </summary>
+    /// <remarks>
+    /// The pacing lives here rather than in the decision loop on purpose: how fast a client can be
+    /// typed at is a property of the client, not of what the bot decided to do. Every input goes
+    /// through it, clicks included, because they share the client's one input queue.
+    /// </remarks>
+    private async Task<bool> PacedAsync(Func<bool> send, string what, CancellationToken ct)
+    {
         await _keyboard.WaitAsync(ct).ConfigureAwait(false);
 
         try
@@ -156,11 +171,11 @@ public sealed class InputActuator : IBotActuator
                 await Task.Delay(wait, ct).ConfigureAwait(false);
             }
 
-            _logger.LogDebug("Pressing {Key} for {What}.", key.Label, what);
-            var pressed = _input.PressKey(key);
+            _logger.LogDebug("Sending {What}.", what);
+            var sent = send();
             _nextPressAt = DateTimeOffset.UtcNow + _options.Keys.PressDelay;
 
-            return pressed;
+            return sent;
         }
         finally
         {

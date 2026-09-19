@@ -122,6 +122,18 @@ public sealed class BotOptions
     public TimeSpan SkillConfirmationWindow { get; set; } = TimeSpan.FromMilliseconds(1500);
 
     /// <summary>
+    /// Gets or sets how long a stalled journey waits before the movement order is sent again.
+    /// </summary>
+    /// <remarks>
+    /// Only ever used when the character has stopped making progress. A minimap click walks the
+    /// whole path by itself, so repeating it while it is working restarts the walk - three clicks a
+    /// second is a character that jitters on the spot rather than one that travels. Re-issuing is
+    /// for the click that was lost or refused, which is why it is measured from a position that has
+    /// not changed rather than from the clock alone.
+    /// </remarks>
+    public TimeSpan WalkReissueInterval { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
     /// Gets or sets how long a target may go unmentioned by the server before it is dropped.
     /// </summary>
     /// <remarks>

@@ -59,6 +59,9 @@ public sealed class PacketActuator : IBotActuator
     public bool SelectsTargetItself => false;
 
     /// <inheritdoc />
+    public bool WalkIsSustained => false;
+
+    /// <inheritdoc />
     public bool TryPrepare(out string error)
     {
         error = string.Empty;

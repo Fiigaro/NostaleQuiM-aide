@@ -40,7 +40,9 @@ public static class CombatSelfCheck
             await PacketPathStillNamesItsTargetAsync().ConfigureAwait(false),
             await QuickBarIsLearnedWithoutSkiAsync().ConfigureAwait(false),
             await ChangingMapClearsStaleStateAsync().ConfigureAwait(false),
-            await RouteIsNotWalkedOnTheWrongMapAsync().ConfigureAwait(false)
+            await RouteIsNotWalkedOnTheWrongMapAsync().ConfigureAwait(false),
+            await WalkingIsNotRestartedEveryTickAsync().ConfigureAwait(false),
+            await StalledWalkIsSentAgainAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -191,6 +193,50 @@ public static class CombatSelfCheck
         return ("la route n'est marchee que sur sa carte", heldElsewhere && walksOnItsOwnMap);
     }
 
+    private static async Task<(string, bool)> WalkingIsNotRestartedEveryTickAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+        options.Waypoints = new List<Waypoint> { new(80, 80, 400, 300) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+
+        // Ticks here run back to back, so the per-tick walk gate has to be opened for the check to
+        // model a real run, where a full tick period elapses between them and the gate is always
+        // free. Without this the gate hides the very behaviour under test.
+        options.TickInterval = TimeSpan.Zero;
+
+        // Four ticks of a character that is walking. Exactly one order should have been sent.
+        for (var step = 0; step < 4; step++)
+        {
+            state.UpdatePosition(50 + step, 50 + step);
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+
+        var orders = actuator.Calls.Count(c => c.StartsWith("waypoint:", StringComparison.Ordinal));
+        return ("marcher n'est pas relance a chaque tick", orders == 1);
+    }
+
+    private static async Task<(string, bool)> StalledWalkIsSentAgainAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+        options.Waypoints = new List<Waypoint> { new(80, 80, 400, 300) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.WalkReissueInterval = TimeSpan.FromMilliseconds(150);
+        options.TickInterval = TimeSpan.Zero;
+
+        // Same position throughout: the click went nowhere, so it has to be sent again - but only
+        // once the window has passed, not on the very next tick.
+        state.UpdatePosition(50, 50);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var heldAtFirst = actuator.Calls.Count(c => c.StartsWith("waypoint:", StringComparison.Ordinal)) == 1;
+
+        await Task.Delay(250).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var sentAgain = actuator.Calls.Count(c => c.StartsWith("waypoint:", StringComparison.Ordinal)) == 2;
+
+        return ("un trajet bloque est relance", heldAtFirst && sentAgain);
+    }
+
     private static PacketEventArgs<SuPacket> Su(int vnum, short cooldown, long casterId)
         => new
         (
@@ -273,6 +319,8 @@ public static class CombatSelfCheck
         public bool SupportsApproach => !SelectsTargetItself;
 
         public bool SelectsTargetItself { get; }
+
+        public bool WalkIsSustained => SelectsTargetItself;
 
         public bool TryPrepare(out string error)
         {

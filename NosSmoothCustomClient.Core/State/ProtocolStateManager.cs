@@ -447,6 +447,17 @@ public sealed class ProtocolStateManager
     public bool TryTakeAttackGate(TimeSpan cooldown)
         => TryTakeGate(ref _lastAttackStamp, cooldown);
 
+    /// <summary>
+    /// Opens the target search gate, so the next tick looks for a target straight away.
+    /// </summary>
+    /// <remarks>
+    /// Called when a target dies. Waiting out the search interval there means several ticks with no
+    /// target, which navigation reads as "nothing to do here" - so the bot walks away from the spot
+    /// it was just farming, right as the next monster spawns into it.
+    /// </remarks>
+    public void ResetSearchGate()
+        => Interlocked.Exchange(ref _lastSearchStamp, 0);
+
     /// <summary>Takes the target search gate if its cooldown has elapsed.</summary>
     /// <param name="cooldown">The cooldown.</param>
     /// <returns>True when the caller may probe for a target.</returns>

@@ -31,6 +31,11 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
     private int _lastLoggedPriority = -1;
 
+    // The journey in progress, for a movement order that walks the whole path by itself.
+    private int _walkingTo = -1;
+    private Waypoint _walkedFrom;
+    private DateTimeOffset _walkedAt;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationBackgroundService"/> class.
     /// </summary>
@@ -414,14 +419,71 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             }
         }
 
-        if (!_state.TryTakeWalkGate(_options.TickInterval))
+        var index = _state.WaypointIndex % waypoints.Count;
+
+        if (_actuator.WalkIsSustained && !ShouldReissueWalk(index, position))
+        {
+            // Already walking there, and getting closer. Saying so again would only restart it.
+            return;
+        }
+
+        if (!_actuator.WalkIsSustained && !_state.TryTakeWalkGate(_options.TickInterval))
         {
             return;
         }
 
         LogPriority(4, "navigation: at ({0},{1}), heading for {2}, {3} cells away", position.X, position.Y, waypoint, distance);
 
-        await _actuator.GoToWaypointAsync(_state.WaypointIndex % waypoints.Count, ct).ConfigureAwait(false);
+        await _actuator.GoToWaypointAsync(index, ct).ConfigureAwait(false);
+
+        _walkingTo = index;
+        _walkedFrom = position;
+        _walkedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// Decides whether a sustained movement order has to be sent again.
+    /// </summary>
+    /// <remarks>
+    /// The test is progress, not time. A character that is moving is obeying the order it already
+    /// has, and interrupting it every tick is what turns travelling into jittering on the spot. Only
+    /// a character that has not moved at all for the whole re-issue window is one whose order went
+    /// nowhere - a click the client dropped, or a point it will not walk to.
+    /// </remarks>
+    private bool ShouldReissueWalk(int index, Waypoint position)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        // A different destination is a new order, always.
+        if (_walkingTo != index)
+        {
+            return true;
+        }
+
+        if (position != _walkedFrom)
+        {
+            // Moving. Reset the stall clock against where we are now.
+            _walkedFrom = position;
+            _walkedAt = now;
+            return false;
+        }
+
+        if (now - _walkedAt < _options.WalkReissueInterval)
+        {
+            return false;
+        }
+
+        _logger.LogWarning
+        (
+            "Still at ({X},{Y}) {Seconds:0.#}s after clicking for waypoint {Index}; sending it again. " +
+            "If this repeats, that waypoint's minimap point is wrong - record the route again.",
+            position.X,
+            position.Y,
+            (now - _walkedAt).TotalSeconds,
+            index + 1
+        );
+
+        return true;
     }
 
     private void LogPriority(int priority, string format, params object?[] args)
