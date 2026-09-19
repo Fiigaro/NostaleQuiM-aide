@@ -495,8 +495,24 @@ public sealed class ProtocolStateManager
             return Position;
         }
 
-        var next = Interlocked.Increment(ref _waypointIndex);
-        return waypoints[((next % waypoints.Count) + waypoints.Count) % waypoints.Count];
+        // The way out is not a stop on the round. Leaving it in the circuit means walking into it
+        // partway through a room, which ends the run with the room still full - and it is the one
+        // waypoint whose whole purpose is to be reached exactly once, at the end.
+        var exit = _options.InstanceMode ? _options.ResolveExitWaypoint() : -1;
+
+        for (var step = 0; step < waypoints.Count; step++)
+        {
+            var next = Interlocked.Increment(ref _waypointIndex);
+            var index = ((next % waypoints.Count) + waypoints.Count) % waypoints.Count;
+
+            if (index != exit)
+            {
+                return waypoints[index];
+            }
+        }
+
+        // Every waypoint is the exit, so there is nowhere else to be.
+        return waypoints[((Volatile.Read(ref _waypointIndex) % waypoints.Count) + waypoints.Count) % waypoints.Count];
     }
 
     /// <summary>Takes the HP consumable gate if its cooldown has elapsed.</summary>

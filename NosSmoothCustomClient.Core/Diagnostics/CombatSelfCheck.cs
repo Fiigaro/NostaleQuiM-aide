@@ -57,7 +57,10 @@ public static class CombatSelfCheck
             await ClearedRoomStopsHuntingAsync().ConfigureAwait(false),
             await BasicAttackFiresEvenWithSkillsReadyAsync().ConfigureAwait(false),
             RouteIsStampedWhereItsPointsWereTaken(),
-            await AStalledFightGivesWayToMovingAsync().ConfigureAwait(false)
+            await AStalledFightGivesWayToMovingAsync().ConfigureAwait(false),
+            TheMinimapIsMeasuredFromTheRoute(),
+            await TheExitIsNotAStopOnTheRoundAsync().ConfigureAwait(false),
+            await DistantMonstersAreWalkedToAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -315,6 +318,72 @@ public static class CombatSelfCheck
 
         return ("un combat qui n'avance plus laisse la place au déplacement",
             heldTheTickWhileProgressing && attacked && moved);
+    }
+
+    private static (string, bool) TheMinimapIsMeasuredFromTheRoute()
+    {
+        // The two points actually recorded in the room. Recording a waypoint captures the same place
+        // in both coordinate systems, so a route is also a measurement of the minimap.
+        var projection = MinimapProjection.Build(new[] { new Waypoint(13, 14, 1351, 100), new Waypoint(14, 1, 1354, 36) });
+
+        if (projection is null)
+        {
+            return ("la minimap se mesure depuis la route", false);
+        }
+
+        var a = projection.Project(13, 14);
+        var b = projection.Project(14, 1);
+
+        // It has to reproduce the points it was built from, and it has to admit that one cell of
+        // spread in X measures nothing - a confidently wrong projection sends the character
+        // somewhere nobody asked for.
+        var faithful = a == (1351, 100) && b == (1354, 36);
+        var honest = !projection.IsWellSpread && projection.SpreadY == 13 && projection.SpreadX == 1;
+
+        return ("la minimap se mesure depuis la route", faithful && honest);
+    }
+
+    private static async Task<(string, bool)> TheExitIsNotAStopOnTheRoundAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.WaypointArrivalRadius = 3;
+
+        // Without this the target probe claims every tick and navigation is never reached, which
+        // makes the whole check pass without exercising anything.
+        options.SearchInterval = TimeSpan.FromHours(1);
+
+        // Standing on the roaming point, which is where arriving at it leaves you. Advancing from
+        // there must not walk into the way out: that ends the run with the room still full, which is
+        // exactly what it did.
+        state.UpdatePosition(13, 14);
+
+        for (var tick = 0; tick < 6; tick++)
+        {
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+
+        return ("la sortie n'est pas une étape du circuit", !actuator.Calls.Contains("waypoint:1"));
+    }
+
+    private static async Task<(string, bool)> DistantMonstersAreWalkedToAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.RepositionAfter = TimeSpan.Zero;
+        options.EngagementRadius = 40;
+
+        // The probe takes the first tick to ask the game whether anything is close; only after that
+        // does the answer - nothing within reach - leave the tick to walking.
+        options.SearchInterval = TimeSpan.FromHours(1);
+
+        // A monster the server named, too far for the attack key to find. Its coordinates came in a
+        // packet; the route says where that is on the minimap.
+        state.UpdatePosition(13, 25);
+        state.TrackEntity(new TrackedEntity(77, EntityType.Monster, 13, 4, 100));
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        return ("un monstre lointain est rejoint", actuator.Calls.Any(c => c.StartsWith("approach:", StringComparison.Ordinal)));
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()
@@ -655,7 +724,8 @@ public static class CombatSelfCheck
 
         public string Description => "recording";
 
-        public bool SupportsApproach => !SelectsTargetItself;
+        // The keyboard actuator can approach too, once the minimap has been measured.
+        public bool SupportsApproach => true;
 
         public bool SelectsTargetItself { get; }
 

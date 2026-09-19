@@ -19,6 +19,9 @@ public sealed class InputActuator : IBotActuator
     private readonly ILogger<InputActuator> _logger;
 
     private readonly SemaphoreSlim _keyboard = new(1, 1);
+
+    // Built from the recorded route, which describes the same places in both coordinate systems.
+    private MinimapProjection? _projection;
     private DateTimeOffset _nextPressAt = DateTimeOffset.MinValue;
 
     /// <summary>
@@ -38,7 +41,11 @@ public sealed class InputActuator : IBotActuator
     public string Description => "keyboard and minimap - " + _input.Description;
 
     /// <inheritdoc />
-    public bool SupportsApproach => false;
+    /// <remarks>
+    /// Only once the minimap has been measured. Before that the bot has no way to say "there" about
+    /// anywhere it was not handed a recorded point for.
+    /// </remarks>
+    public bool SupportsApproach => _projection is not null;
 
     /// <inheritdoc />
     public bool SelectsTargetItself => true;
@@ -61,7 +68,17 @@ public sealed class InputActuator : IBotActuator
 
     /// <inheritdoc />
     public Task<bool> ApproachAsync(int x, int y, CancellationToken ct = default)
-        => Task.FromResult(false);
+    {
+        if (_projection is not { } projection)
+        {
+            return Task.FromResult(false);
+        }
+
+        var (clickX, clickY) = projection.Project(x, y);
+        _logger.LogDebug("Approaching ({X},{Y}) by clicking the minimap at ({ClickX},{ClickY}).", x, y, clickX, clickY);
+
+        return PacedAsync(() => _input.ClickAt(clickX, clickY), $"approche ({x},{y})", ct);
+    }
 
     /// <inheritdoc />
     public bool TryPrepare(out string error)
@@ -76,6 +93,23 @@ public sealed class InputActuator : IBotActuator
         if (_input is SwitchableGameInput switchable && _options.MinimapClickMode != MinimapClickMode.Auto)
         {
             switchable.PinClickMode(_options.MinimapClickMode);
+        }
+
+        // The route is two things at once: places to walk to, and a measurement of the minimap that
+        // makes anywhere else reachable too.
+        _projection = MinimapProjection.Build(_options.Waypoints.ToArray());
+
+        if (_projection is null)
+        {
+            _logger.LogWarning
+            (
+                "The minimap could not be measured: that needs at least two recorded waypoints. " +
+                "Without it the bot can only walk to the points it was given."
+            );
+        }
+        else
+        {
+            _logger.LogInformation("Minimap measured from the route: {Description}.", _projection.Description);
         }
 
         // A missing binding is not an error, it just means that action is unavailable. Saying so at

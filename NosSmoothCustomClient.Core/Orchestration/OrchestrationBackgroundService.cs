@@ -38,6 +38,9 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private DateTimeOffset _nextRefusalWarning = DateTimeOffset.MinValue;
     private int _stalls;
 
+    // A destination that is not a waypoint, so the journey bookkeeping can tell it from one.
+    private const int MonsterDestination = -2;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationBackgroundService"/> class.
     /// </summary>
@@ -428,6 +431,14 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return;
         }
 
+        // A monster the server has told us about beats a waypoint. The attack key only reaches what
+        // is already close, so the ones it cannot see are the whole reason the room stops emptying -
+        // and the packets have been naming them and their coordinates all along.
+        if (_options.InstanceMode && await TryCloseInOnAMonsterAsync(ct).ConfigureAwait(false))
+        {
+            return;
+        }
+
         var position = _state.Position;
         var waypoint = _state.CurrentWaypoint;
         var distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
@@ -449,6 +460,15 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         }
 
         var index = _state.WaypointIndex % waypoints.Count;
+
+        // The starting index is zero, and the exit can be waypoint one. Stepping off it before the
+        // room is done is the same mistake as cycling onto it.
+        if (_options.InstanceMode && index == _options.ResolveExitWaypoint())
+        {
+            waypoint = _state.AdvanceWaypoint();
+            index = _state.WaypointIndex % waypoints.Count;
+            distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
+        }
 
         if (_actuator.WalkIsSustained && !ShouldReissueWalk(index, position))
         {
@@ -548,6 +568,57 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             position.X,
             position.Y
         );
+    }
+
+    /// <summary>
+    /// Walks towards the nearest monster the attack key is not reaching.
+    /// </summary>
+    /// <returns>True when a monster was headed for.</returns>
+    /// <remarks>
+    /// Standing in the middle of a room does not put every monster in range of a key that selects
+    /// the nearest, so a room is cleared by going to them. Where they are is not a guess: every
+    /// spawn arrives as a packet carrying its coordinates, and the recorded route measures the
+    /// minimap well enough to turn any of those into a click.
+    /// </remarks>
+    private async Task<bool> TryCloseInOnAMonsterAsync(CancellationToken ct)
+    {
+        if (!_actuator.SupportsApproach || !_state.HasPosition)
+        {
+            return false;
+        }
+
+        if (_state.FindNearestMonster() is not { } monster)
+        {
+            return false;
+        }
+
+        var position = _state.Position;
+        var distance = ProtocolStateManager.Distance(position.X, position.Y, monster.X, monster.Y);
+
+        // Close enough for the attack key to find it by itself: walking would only interrupt.
+        if (distance <= _options.AttackRange)
+        {
+            return false;
+        }
+
+        if (!ShouldReissueWalk(MonsterDestination, position))
+        {
+            Decide(4, "instance : en route vers le monstre #{0} en ({1},{2})", monster.EntityId, monster.X, monster.Y);
+            return true;
+        }
+
+        Decide(4, "instance : direction le monstre #{0} en ({1},{2}), {3} cases", monster.EntityId, monster.X, monster.Y, distance);
+
+        if (!await _actuator.ApproachAsync(monster.X, monster.Y, ct).ConfigureAwait(false))
+        {
+            _walkingTo = -1;
+            return false;
+        }
+
+        _walkingTo = MonsterDestination;
+        _walkedFrom = position;
+        _walkedAt = DateTimeOffset.UtcNow;
+        return true;
     }
 
     /// <summary>
