@@ -578,6 +578,33 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
         _stalls++;
 
+        // Changing how the order is sent has had its chance by now, and repeating it has had
+        // several. The waypoint itself is the problem: a point the character cannot reach, or one
+        // it is standing near enough to that it will never be judged to have arrived. Leaving it
+        // for the next one keeps the patrol going instead of parking the bot there for good.
+        if (_stalls >= 4)
+        {
+            var abandoned = _options.Waypoints[index];
+            var attempts = _stalls;
+            var next = _state.AdvanceWaypoint();
+            _stalls = 0;
+            _walkingTo = -1;
+
+            _logger.LogWarning
+            (
+                "Giving up on waypoint {Index} {Waypoint}: {Stalls} orders and the character never " +
+                "moved. Skipping to {Next}. If this one always fails, its minimap point is wrong, or " +
+                "WaypointArrivalRadius ({Radius}) is too small for how close the click gets.",
+                index + 1,
+                abandoned,
+                attempts,
+                next,
+                _options.WaypointArrivalRadius
+            );
+
+            return false;
+        }
+
         // Once is a lost click. Twice in a row is the order being accepted and ignored, which no
         // amount of repeating will fix - so change how it is sent before trying again.
         if (_stalls >= 2 && _actuator.TryAnotherWayToMove(out var changed))

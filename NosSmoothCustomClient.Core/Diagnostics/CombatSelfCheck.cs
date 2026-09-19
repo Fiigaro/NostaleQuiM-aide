@@ -47,7 +47,9 @@ public static class CombatSelfCheck
             await UnknownMapDoesNotBlockTheRouteAsync().ConfigureAwait(false),
             await StartingOnAWaypointStillWalksAsync().ConfigureAwait(false),
             await UnknownPositionStillStartsWalkingAsync().ConfigureAwait(false),
-            await RouteGoingNowhereIsReportedAsync().ConfigureAwait(false)
+            await RouteGoingNowhereIsReportedAsync().ConfigureAwait(false),
+            await TheGamesOwnTargetIsAdoptedAsync().ConfigureAwait(false),
+            await UnreachableWaypointIsSkippedAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -242,6 +244,49 @@ public static class CombatSelfCheck
         return ("un trajet bloque est relance", heldAtFirst && sentAgain);
     }
 
+    private static async Task<(string, bool)> TheGamesOwnTargetIsAdoptedAsync()
+    {
+        var (loop, state, rotation, actuator, options) = Build(selectsTargetItself: true);
+        var responder = new TargetHpResponder(state, NullLogger<TargetHpResponder>.Instance);
+
+        state.SetOwnCharacterId(1234);
+
+        // Nothing on our side picks a target when the game does its own selecting, so the only way
+        // to learn what it chose is the server reporting our character hitting it. Without this the
+        // lock stays empty and the rotation never casts anything at all.
+        await responder.Respond(Su(vnum: null, cooldown: 0, casterId: 1234)).ConfigureAwait(false);
+
+        var locked = state.Target?.EntityId == 42;
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var cast = actuator.Calls.Any(c => c.StartsWith("skill:", StringComparison.Ordinal));
+
+        return ("la cible choisie par le jeu est adoptee", locked && cast && rotation is not null);
+    }
+
+    private static async Task<(string, bool)> UnreachableWaypointIsSkippedAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+        options.Waypoints = new List<Waypoint> { new(200, 200, 400, 300), new(80, 80, 410, 310) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+        options.WalkReissueInterval = TimeSpan.FromMilliseconds(60);
+
+        // Every order is accepted, the character never moves, and no other way of clicking helps.
+        // Parking there forever is the one outcome that is never right.
+        state.UpdatePosition(50, 50);
+
+        // Enough ticks for a lost click, a change of method, and the repeats after it to all have
+        // had their turn before giving up is the only thing left.
+        for (var attempt = 0; attempt < 14; attempt++)
+        {
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(90).ConfigureAwait(false);
+        }
+
+        return ("un waypoint inatteignable est abandonne", actuator.Calls.Contains("waypoint:1"));
+    }
+
     private static async Task<(string, bool)> StartingOnAWaypointStillWalksAsync()
     {
         var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
@@ -343,7 +388,7 @@ public static class CombatSelfCheck
         return ("des clics ignores font changer de methode", actuator.Escalations > 0);
     }
 
-    private static PacketEventArgs<SuPacket> Su(int vnum, short cooldown, long casterId)
+    private static PacketEventArgs<SuPacket> Su(int? vnum, short cooldown, long casterId)
         => new
         (
             PacketSource.Server,

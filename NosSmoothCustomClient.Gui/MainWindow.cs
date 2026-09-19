@@ -76,6 +76,18 @@ public sealed class MainWindow : Window
     private readonly Button _arm = new() { Width = 190, Height = 28 };
     private readonly Button _clearRoute = new() { Content = "Effacer", Width = 90, Height = 28 };
     private readonly Button _testClick = new() { Content = "Tester le clic (point 1)", Width = 190, Height = 28 };
+    private readonly NumericUpDown _arrivalRadius = new()
+    {
+        Minimum = 1,
+        Maximum = 40,
+        Increment = 1,
+        Width = 90,
+        Height = 34,
+        FontSize = 15,
+        Padding = new Thickness(6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalContentAlignment = HorizontalAlignment.Center
+    };
     private readonly Button _saveRoute = new() { Content = "Enregistrer la route", Width = 170, Height = 28 };
     private readonly StackPanel _routeList = new() { Spacing = 3 };
     private readonly StackPanel _readiness = new() { Spacing = 3 };
@@ -173,6 +185,16 @@ public sealed class MainWindow : Window
         _arm.Click += (_, _) => ToggleArm();
         _clearRoute.Click += (_, _) => ClearRoute();
         _testClick.Click += (_, _) => TestClick();
+
+        _arrivalRadius.Value = _options.WaypointArrivalRadius;
+        _arrivalRadius.ValueChanged += (_, e) =>
+        {
+            if (e.NewValue is { } value)
+            {
+                _options.WaypointArrivalRadius = (int)value;
+                MarkDirty();
+            }
+        };
         _saveRoute.Click += (_, _) => SaveRoute();
 
         if (_recorder is not null)
@@ -953,6 +975,20 @@ public sealed class MainWindow : Window
         actions.Children.Add(_routeStatus);
 
         panel.Children.Add(actions);
+
+        var radius = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        radius.Children.Add(new TextBlock
+        {
+            Text = "Rayon d'arrivée (cases)",
+            Foreground = Muted,
+            FontSize = 11.5,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        radius.Children.Add(_arrivalRadius);
+        radius.Children.Add(Note("un clic minimap est imprécis ; trop petit, le bot n'arrive jamais"));
+        panel.Children.Add(radius);
+
         panel.Children.Add(_routeList);
 
         if (_recorder is null)

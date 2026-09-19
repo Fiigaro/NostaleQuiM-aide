@@ -198,7 +198,13 @@ public sealed class BotOptions
     /// <summary>
     /// Gets or sets the distance at which a waypoint counts as reached.
     /// </summary>
-    public int WaypointArrivalRadius { get; set; } = 2;
+    /// <remarks>
+    /// Generous on purpose. A minimap click is a coarse instrument - a pixel covers several cells,
+    /// and the client walks to roughly where it was pointed - so demanding the exact square leaves
+    /// the bot clicking the same point forever, a step away from a waypoint it will never be judged
+    /// to have reached.
+    /// </remarks>
+    public int WaypointArrivalRadius { get; set; } = 5;
 
     /// <summary>
     /// Gets or sets the distance within which the attack skill lands.
