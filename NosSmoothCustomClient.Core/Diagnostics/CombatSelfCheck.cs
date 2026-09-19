@@ -54,7 +54,8 @@ public static class CombatSelfCheck
             await WorkingClicksAreNotBlamedWithoutAPositionAsync().ConfigureAwait(false),
             await LeavingEntityReleasesTheTargetAsync().ConfigureAwait(false),
             await ClearedRoomHeadsForTheExitAsync().ConfigureAwait(false),
-            await ClearedRoomStopsHuntingAsync().ConfigureAwait(false)
+            await ClearedRoomStopsHuntingAsync().ConfigureAwait(false),
+            await BasicAttackFiresEvenWithSkillsReadyAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -284,6 +285,32 @@ public static class CombatSelfCheck
         state.UpdatePosition(13, 14);
 
         return (loop, state, actuator, options);
+    }
+
+    private static async Task<(string, bool)> BasicAttackFiresEvenWithSkillsReadyAsync()
+    {
+        var (loop, state, rotation, actuator, options) = Build(selectsTargetItself: true);
+
+        // Two skills, both ready, both affordable - the state a rotation spends nearly all its time
+        // in. Treating the attack key as what to press when nothing else is ready means never
+        // pressing it, which is most of the damage gone.
+        options.Skills = new List<SkillDefinition>
+        {
+            new(1, "A", 0, TimeSpan.FromSeconds(10)),
+            new(2, "B", 0, TimeSpan.FromSeconds(10))
+        };
+
+        Engage(state);
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var both = actuator.Calls.Contains("basic") && actuator.Calls.Any(c => c.StartsWith("skill:", StringComparison.Ordinal));
+
+        // And it keeps swinging on the frames that follow, while the skill waits for its answer.
+        actuator.Calls.Clear();
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var keptSwinging = actuator.Calls.Contains("basic");
+
+        return ("l'attaque de base part même avec des sorts prêts", both && keptSwinging && rotation is not null);
     }
 
     private static async Task<(string, bool)> ClearedRoomHeadsForTheExitAsync()

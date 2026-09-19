@@ -256,33 +256,33 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return true;
         }
 
-        // Hold everything while a cast is outstanding. Another key now could cancel the skill we
-        // just asked for, and it would make the server's answer ambiguous - which matters, because
-        // that answer is how the quick bar gets identified when no ski was ever seen. The wait is
-        // bounded: the press expires with its confirmation window.
-        if (_rotation.PendingCastId is { } pending)
-        {
-            _logger.LogDebug("Waiting for the server to confirm the cast from slot {CastId}.", pending);
-            return true;
-        }
-
         if (!_state.TryTakeAttackGate(_options.AttackInterval))
         {
             return true;
         }
 
-        var skill = _rotation.SelectNext(_state.CurrentMp);
+        // The attack key on every frame, unconditionally. It used to be the fallback for a tick
+        // where no skill was ready - which, with a rotation that nearly always has one, meant it
+        // was never pressed at all. That is backwards: on this client the attack key is what keeps
+        // the character swinging and closing distance, and the skills are what go on top of it.
+        // Played by hand the same fight is forty-one presses of it against six of anything else.
+        await _actuator.CastSkillAsync(null, target.EntityId, ct).ConfigureAwait(false);
+
+        // A skill alongside it, when one is ready and nothing is still awaiting its answer. Holding
+        // only the skills is deliberate: a plain swing carries no cooldown of its own, so it cannot
+        // be mistaken for the confirmation of the cast we are waiting on.
+        var skill = _rotation.PendingCastId is null ? _rotation.SelectNext(_state.CurrentMp) : null;
 
         LogPriority
         (
             3,
-            "engagement: #{0} at {1}% HP -> {2}",
+            "engagement: #{0} at {1}% HP -> attaque{2}",
             target.EntityId,
             target.HpPercentage,
-            skill?.Name ?? "basic attack"
+            skill is null ? string.Empty : " + " + skill.Name
         );
 
-        if (await _actuator.CastSkillAsync(skill, target.EntityId, ct).ConfigureAwait(false) && skill is not null)
+        if (skill is not null && await _actuator.CastSkillAsync(skill, target.EntityId, ct).ConfigureAwait(false))
         {
             // Pressed, not cast. The full cooldown waits for the server to confirm it went off.
             _rotation.MarkPressed(skill);
