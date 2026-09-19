@@ -43,7 +43,8 @@ public static class CombatSelfCheck
             await RouteIsNotWalkedOnTheWrongMapAsync().ConfigureAwait(false),
             await WalkingIsNotRestartedEveryTickAsync().ConfigureAwait(false),
             await StalledWalkIsSentAgainAsync().ConfigureAwait(false),
-            await IgnoredClicksChangeHowWeClickAsync().ConfigureAwait(false)
+            await IgnoredClicksChangeHowWeClickAsync().ConfigureAwait(false),
+            await UnknownMapDoesNotBlockTheRouteAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -236,6 +237,29 @@ public static class CombatSelfCheck
         var sentAgain = actuator.Calls.Count(c => c.StartsWith("waypoint:", StringComparison.Ordinal)) == 2;
 
         return ("un trajet bloque est relance", heldAtFirst && sentAgain);
+    }
+
+    private static async Task<(string, bool)> UnknownMapDoesNotBlockTheRouteAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+        options.Waypoints = new List<Waypoint> { new(80, 80, 400, 300) };
+        options.RouteMapId = 9;
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+
+        // The map is never announced, which is the normal case for a bot started while the
+        // character is already standing somewhere: at and c_map only arrive on entering a map.
+        // Reading that silence as "the wrong map" stops the bot walking for the whole session.
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        var walked = actuator.Calls.Any(c => c.StartsWith("waypoint:", StringComparison.Ordinal));
+
+        // And the window must agree with the loop, or a green line covers a bot that is refusing.
+        var readinessAgrees = BotReadiness.Describe(options, state, null)
+            .First(i => i.Name == "Déplacement").Ready;
+
+        return ("une carte inconnue ne bloque pas la route", walked && readinessAgrees);
     }
 
     private static async Task<(string, bool)> IgnoredClicksChangeHowWeClickAsync()

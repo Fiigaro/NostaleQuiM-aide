@@ -123,6 +123,25 @@ public sealed class BotOptions
     public TimeSpan SkillConfirmationWindow { get; set; } = TimeSpan.FromMilliseconds(1500);
 
     /// <summary>
+    /// Decides whether the patrol route may be walked on a given map.
+    /// </summary>
+    /// <param name="currentMapId">The map the character is on, or -1 while it is not known.</param>
+    /// <returns>True when the route applies here.</returns>
+    /// <remarks>
+    /// An unknown map is permissive, and that is the whole point. The map is learned from <c>at</c>
+    /// and <c>c_map</c>, which the server only sends on entering a map - a bot started while the
+    /// character is already standing somewhere sees neither, and stays at -1 until the next
+    /// teleport. Reading that as "not the route's map" stops the bot walking for the entire session
+    /// over something nobody ever claimed. Only a map we have actually been told about, and which
+    /// differs, holds the route.
+    ///
+    /// Both the decision loop and the readiness report ask this, so the window cannot say the route
+    /// is ready while the loop is refusing to walk it.
+    /// </remarks>
+    public bool RouteAppliesOnMap(int currentMapId)
+        => RouteMapId is not { } routeMap || currentMapId < 0 || currentMapId == routeMap;
+
+    /// <summary>
     /// Gets or sets how minimap clicks are delivered to the client.
     /// </summary>
     /// <remarks>

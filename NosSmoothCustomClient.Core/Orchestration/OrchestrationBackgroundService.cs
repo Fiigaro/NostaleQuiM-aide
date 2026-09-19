@@ -120,6 +120,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         if (!_controller.IsRunning)
         {
             // Paused: the packet pipeline keeps running, so the loop resumes on fresh state.
+            LastDecision = "en pause";
             return;
         }
 
@@ -379,20 +380,21 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         var waypoints = _options.Waypoints;
         if (waypoints.Count == 0)
         {
+            Decide(4, "navigation: aucun waypoint configuré");
             return;
         }
 
         // A route is minimap click points, and a minimap belongs to a map. Walking one recorded
         // elsewhere is clicking at random - which is merely useless while grinding and actively
         // harmful in a raid, where the next room is another map entirely.
-        if (_options.RouteMapId is { } routeMap && _state.CurrentMapId != routeMap)
+        if (!_options.RouteAppliesOnMap(_state.CurrentMapId))
         {
-            LogPriority
+            Decide
             (
                 4,
                 "navigation: on map {0}, but the route belongs to map {1} - holding position",
                 _state.CurrentMapId,
-                routeMap
+                _options.RouteMapId
             );
 
             return;
@@ -426,6 +428,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         if (_actuator.WalkIsSustained && !ShouldReissueWalk(index, position))
         {
             // Already walking there, and getting closer. Saying so again would only restart it.
+            Decide(4, "navigation: en route vers {0}, {1} cases restantes", waypoint, distance);
             return;
         }
 
@@ -537,9 +540,21 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         return true;
     }
 
+    /// <summary>Gets what the loop decided on its last tick, for the window to show.</summary>
+    /// <remarks>
+    /// The log says what happened; this says what is happening. Every "the bot does nothing" so far
+    /// has been the loop deciding, correctly and quietly, not to act - a state the log only shows to
+    /// someone who knows which line to look for, and which one glance at this answers instead.
+    /// </remarks>
+    public string LastDecision { get; private set; } = "en attente du premier tick";
+
+    private void Decide(int priority, string format, params object?[] args)
+        => LogPriority(priority, format, args);
+
     private void LogPriority(int priority, string format, params object?[] args)
     {
         var message = string.Format(format, args);
+        LastDecision = message;
 
         // Only announce a priority switch at information level; the rest stays at debug so the
         // 300ms cadence does not drown the log.

@@ -109,13 +109,13 @@ public static class BotReadiness
             );
         }
 
-        if (options.RouteMapId is { } routeMap && state.CurrentMapId >= 0 && state.CurrentMapId != routeMap)
+        if (!options.RouteAppliesOnMap(state.CurrentMapId))
         {
             return new ReadinessItem
             (
                 "Déplacement",
                 false,
-                $"la route appartient à la carte {routeMap}, tu es sur la {state.CurrentMapId}"
+                $"la route appartient à la carte {options.RouteMapId}, tu es sur la {state.CurrentMapId}"
             );
         }
 

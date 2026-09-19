@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using NosSmoothCustomClient.Configuration;
 using NosSmoothCustomClient.Diagnostics;
 using NosSmoothCustomClient.Input;
+using NosSmoothCustomClient.Orchestration;
 using NosSmoothCustomClient.State;
 
 namespace NosSmoothCustomClient.Gui;
@@ -51,6 +52,13 @@ public sealed class MainWindow : Window
     private readonly TextBlock _target = Mono();
     private readonly TextBlock _entities = Mono();
     private readonly TextBlock _map = Mono();
+    private readonly TextBlock _decision = new()
+    {
+        Foreground = Muted,
+        FontSize = 12,
+        TextWrapping = TextWrapping.Wrap,
+        VerticalAlignment = VerticalAlignment.Center
+    };
     private readonly StackPanel _skills = new() { Spacing = 4 };
     private readonly StackPanel _buffPanel = new() { Spacing = 4 };
     private readonly Button _save = new() { Content = "Enregistrer les réglages", Height = 30 };
@@ -62,6 +70,7 @@ public sealed class MainWindow : Window
 
     private readonly SwitchableGameInput? _input;
     private readonly WaypointRecorder? _recorder;
+    private readonly OrchestrationBackgroundService? _loop;
 
     private readonly Button _live = new() { Width = 150, Height = 32 };
     private readonly Button _arm = new() { Width = 190, Height = 28 };
@@ -120,11 +129,13 @@ public sealed class MainWindow : Window
         LogBuffer logs,
         RunMode mode,
         SwitchableGameInput? input = null,
-        WaypointRecorder? recorder = null
+        WaypointRecorder? recorder = null,
+        OrchestrationBackgroundService? loop = null
     )
     {
         _input = input;
         _recorder = recorder;
+        _loop = loop;
         _state = state;
         _rotation = rotation;
         _buffs = buffs;
@@ -227,6 +238,7 @@ public sealed class MainWindow : Window
         _target.Foreground = _state.HasLiveTarget ? Ready : Muted;
 
         _entities.Text = _state.KnownEntities.Count.ToString();
+        _decision.Text = _loop?.LastDecision ?? "moteur non disponible";
         RefreshMap();
 
         if (_input is null)
@@ -473,7 +485,7 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
             Margin = new Thickness(0, 2, 0, 0)
         };
 
@@ -482,6 +494,8 @@ public sealed class MainWindow : Window
         AddCell(grid, 1, 0, "Cible", _target);
         AddCell(grid, 1, 2, "Entités", _entities);
         AddCell(grid, 2, 0, "Waypoint", _waypoint);
+        AddCell(grid, 3, 0, "En train de", _decision);
+        Grid.SetColumnSpan(_decision, 3);
 
         return Section("État", grid);
     }

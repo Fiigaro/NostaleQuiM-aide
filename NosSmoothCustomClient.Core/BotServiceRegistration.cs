@@ -173,7 +173,10 @@ public static class BotServiceRegistration
 
         // 7. Workers shared by every front-end.
         services.AddHostedService<NostaleClientHostedService>();
-        services.AddHostedService<OrchestrationBackgroundService>();
+        // Registered as itself and forwarded, so the window can read what the loop last decided
+        // rather than inferring it from the log.
+        services.AddSingleton<OrchestrationBackgroundService>();
+        services.AddHostedService(sp => sp.GetRequiredService<OrchestrationBackgroundService>());
 
         return services;
     }

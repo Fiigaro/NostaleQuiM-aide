@@ -61,6 +61,7 @@ public sealed class App : Application
             services.GetRequiredService<LogBuffer>(),
             mode,
             services.GetService<NosSmoothCustomClient.Input.SwitchableGameInput>(),
-            services.GetService<NosSmoothCustomClient.Input.WaypointRecorder>()
+            services.GetService<NosSmoothCustomClient.Input.WaypointRecorder>(),
+            services.GetService<NosSmoothCustomClient.Orchestration.OrchestrationBackgroundService>()
         );
 }
