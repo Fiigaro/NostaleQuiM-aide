@@ -184,6 +184,39 @@ public sealed class BotOptions
     public int MaxStepDistance { get; set; } = 3;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the bot is running an instance room.
+    /// </summary>
+    /// <remarks>
+    /// An instance is not a patrol. The route is not a circuit to walk round but two jobs: somewhere
+    /// to stand while pulling monsters, and the way out once the room is done. And the room being
+    /// done is announced, so the bot stops looking for something to kill the moment it is told there
+    /// is nothing left, rather than wandering an empty room deciding for itself.
+    /// </remarks>
+    public bool InstanceMode { get; set; }
+
+    /// <summary>
+    /// Gets or sets which waypoint is the way out, as its number in the list. Defaults to the last.
+    /// </summary>
+    public int? ExitWaypoint { get; set; }
+
+    /// <summary>
+    /// Gets the index of the exit waypoint, or -1 when there is none.
+    /// </summary>
+    /// <returns>The zero-based index.</returns>
+    public int ResolveExitWaypoint()
+    {
+        if (Waypoints.Count == 0)
+        {
+            return -1;
+        }
+
+        // Recorded last is the natural convention - you walk the room, then walk out of it - but a
+        // route recorded in another order has to be able to say so.
+        var chosen = ExitWaypoint is { } number ? number - 1 : Waypoints.Count - 1;
+        return chosen >= 0 && chosen < Waypoints.Count ? chosen : -1;
+    }
+
+    /// <summary>
     /// Gets or sets the map the patrol route was recorded on, or null when it is not tied to one.
     /// </summary>
     /// <remarks>

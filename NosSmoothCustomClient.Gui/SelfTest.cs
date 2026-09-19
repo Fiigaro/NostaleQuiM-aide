@@ -124,6 +124,20 @@ public static class SelfTest
             }
         }
 
+        // Cocher le mode instance doit atteindre les options en direct, comme toute autre case.
+        var instanceToggles = false;
+        var instanceBox = boxes.FirstOrDefault(b => (b.Content as string)?.Contains("instance") == true);
+
+        if (instanceBox is not null)
+        {
+            var before = options.InstanceMode;
+            instanceBox.IsChecked = !before;
+            Dispatcher.UIThread.RunJobs();
+            instanceToggles = options.InstanceMode != before;
+            instanceBox.IsChecked = before;
+            Dispatcher.UIThread.RunJobs();
+        }
+
         var clearWorks = false;
         var clearButton = visuals.OfType<Button>().FirstOrDefault(b => b.Content as string == "Effacer");
 
@@ -200,6 +214,10 @@ public static class SelfTest
             // Le panneau d'enregistrement de run, et le format des lignes qu'il affichera.
             ("section run rendue", texts.Any(t => t.Contains("Joue la séquence à la main"))),
             ("une ligne de run se lit", RunEventReadsBack()),
+
+            // Le mode instance doit être réglable depuis la fenêtre, sinon il faut éditer le JSON
+            // pour désigner le portail - ce qui est exactement ce qu'on cherche à éviter.
+            ("mode instance reglable", texts.Any(t => t.Contains("sortie = waypoint")) && instanceToggles),
 
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.

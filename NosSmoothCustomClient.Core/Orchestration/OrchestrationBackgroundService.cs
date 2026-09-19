@@ -211,6 +211,14 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             _state.ClearTarget();
         }
 
+        // Told there is nothing left, rather than deciding it. In a room whose monsters were wiped
+        // in one packet, probing for a target is asking a question already answered - and the one
+        // thing left to do is leave.
+        if (_options.InstanceMode && _state.RoomCleared)
+        {
+            return false;
+        }
+
         return _actuator.SelectsTargetItself
             ? await EngageByKeyAsync(ct).ConfigureAwait(false)
             : await EngageByPacketAsync(ct).ConfigureAwait(false);
@@ -400,6 +408,14 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return;
         }
 
+        // A cleared room has one destination, and staying on it is the point: the way out is a tile
+        // to stand on, not a stop on a circuit to be left again on the next tick.
+        if (_options.InstanceMode && _state.RoomCleared)
+        {
+            await HeadForTheExitAsync(ct).ConfigureAwait(false);
+            return;
+        }
+
         var position = _state.Position;
         var waypoint = _state.CurrentWaypoint;
         var distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
@@ -520,6 +536,49 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             position.X,
             position.Y
         );
+    }
+
+    /// <summary>
+    /// Walks to the room's way out and stays on it.
+    /// </summary>
+    private async Task HeadForTheExitAsync(CancellationToken ct)
+    {
+        var index = _options.ResolveExitWaypoint();
+
+        if (index < 0)
+        {
+            Decide(4, "instance : salle terminée, mais aucun waypoint de sortie n'est défini");
+            return;
+        }
+
+        var exit = _options.Waypoints[index];
+        var position = _state.Position;
+        var distance = ProtocolStateManager.Distance(position.X, position.Y, exit.X, exit.Y);
+
+        if (_state.HasPosition && distance <= _options.WaypointArrivalRadius)
+        {
+            Decide(4, "instance : salle terminée, sur la sortie {0} - en attente du portail", exit);
+            return;
+        }
+
+        if (!ShouldReissueWalk(index, position))
+        {
+            Decide(4, "instance : salle terminée, en route vers la sortie {0}, {1} cases", exit, distance);
+            return;
+        }
+
+        Decide(4, "instance : salle terminée, direction la sortie {0}, {1} cases", exit, distance);
+
+        if (!await _actuator.GoToWaypointAsync(index, ct).ConfigureAwait(false))
+        {
+            ReportWaypointRefused(index, exit);
+            _walkingTo = -1;
+            return;
+        }
+
+        _walkingTo = index;
+        _walkedFrom = position;
+        _walkedAt = DateTimeOffset.UtcNow;
     }
 
     private void ReportWaypointRefused(int index, Waypoint waypoint)

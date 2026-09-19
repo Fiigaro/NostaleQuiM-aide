@@ -71,6 +71,12 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets how minimap clicks are delivered ("Auto", "Posted" or "RealCursor").</summary>
     public string? MinimapClickMode { get; set; }
 
+    /// <summary>Gets or sets whether the bot runs an instance room rather than a patrol.</summary>
+    public bool? InstanceMode { get; set; }
+
+    /// <summary>Gets or sets which waypoint is the way out of the room.</summary>
+    public int? ExitWaypoint { get; set; }
+
     /// <summary>Gets or sets the attack rotation, in priority order.</summary>
     public List<SkillEntry>? Skills { get; set; }
 
@@ -186,6 +192,8 @@ public sealed class BotConfigurationFile
         Set(file.MaxStepDistance, v => options.MaxStepDistance = v, "MaxStepDistance", applied);
         Set(file.WaypointArrivalRadius, v => options.WaypointArrivalRadius = v, "WaypointArrivalRadius", applied);
         Set(file.RouteMapId, v => options.RouteMapId = v, "RouteMapId", applied);
+        Set(file.InstanceMode, v => options.InstanceMode = v, "InstanceMode", applied);
+        Set(file.ExitWaypoint, v => options.ExitWaypoint = v, "ExitWaypoint", applied);
 
         if (Enum.TryParse<MinimapClickMode>(file.MinimapClickMode, true, out var clickMode))
         {

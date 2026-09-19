@@ -52,7 +52,9 @@ public static class CombatSelfCheck
             await TheGamesOwnTargetIsAdoptedAsync().ConfigureAwait(false),
             await UnreachableWaypointIsSkippedAsync().ConfigureAwait(false),
             await WorkingClicksAreNotBlamedWithoutAPositionAsync().ConfigureAwait(false),
-            await LeavingEntityReleasesTheTargetAsync().ConfigureAwait(false)
+            await LeavingEntityReleasesTheTargetAsync().ConfigureAwait(false),
+            await ClearedRoomHeadsForTheExitAsync().ConfigureAwait(false),
+            await ClearedRoomStopsHuntingAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -265,6 +267,56 @@ public static class CombatSelfCheck
         var cast = actuator.Calls.Any(c => c.StartsWith("skill:", StringComparison.Ordinal));
 
         return ("la cible choisie par le jeu est adoptee", locked && cast && rotation is not null);
+    }
+
+    private static (OrchestrationBackgroundService Loop, ProtocolStateManager State, RecordingActuator Actuator, BotOptions Options)
+        BuildInstance()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+
+        // The two jobs a room's route has: somewhere to pull from, and the way out.
+        options.Waypoints = new List<Waypoint> { new(13, 14, 1351, 100), new(14, 1, 1354, 36) };
+        options.InstanceMode = true;
+        options.SearchInterval = TimeSpan.Zero;
+        options.TickInterval = TimeSpan.Zero;
+
+        state.EnterMap(4103);
+        state.UpdatePosition(13, 14);
+
+        return (loop, state, actuator, options);
+    }
+
+    private static async Task<(string, bool)> ClearedRoomHeadsForTheExitAsync()
+    {
+        var (loop, state, actuator, _) = BuildInstance();
+
+        state.MarkRoomCleared();
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // Waypoint 2 is the portal, and nothing else will do: a cleared room has one destination.
+        return ("une salle terminée mène à la sortie", actuator.Calls.Contains("waypoint:1"));
+    }
+
+    private static async Task<(string, bool)> ClearedRoomStopsHuntingAsync()
+    {
+        var (loop, state, actuator, _) = BuildInstance();
+
+        // A monster still in the table, and the room announced as wiped. The announcement wins:
+        // probing for a target is asking a question the server has already answered.
+        state.TrackEntity(new TrackedEntity(42, EntityType.Monster, 13, 15, 100));
+        state.MarkRoomCleared();
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        var hunted = actuator.Calls.Contains("target")
+                     || actuator.Calls.Any(c => c.StartsWith("skill:", StringComparison.Ordinal));
+
+        // And a fresh room puts it back to work.
+        state.EnterMap(4104);
+        state.UpdatePosition(13, 14);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        return ("une salle terminée arrête la chasse", !hunted && !state.RoomCleared && actuator.Calls.Contains("target"));
     }
 
     private static async Task<(string, bool)> LeavingEntityReleasesTheTargetAsync()

@@ -83,6 +83,27 @@ public sealed class MainWindow : Window
     private int _probeIndex;
     private (IntPtr Handle, string ClassName)? _lastProbed;
 
+    private readonly CheckBox _instanceMode = new()
+    {
+        Content = "Mode instance (espace-temps)",
+        Foreground = Ink,
+        FontSize = 12.5,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private readonly NumericUpDown _exitWaypoint = new()
+    {
+        Minimum = 1,
+        Maximum = 99,
+        Increment = 1,
+        Width = 90,
+        Height = 34,
+        FontSize = 15,
+        Padding = new Thickness(6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalContentAlignment = HorizontalAlignment.Center
+    };
+
     private readonly NumericUpDown _arrivalRadius = new()
     {
         Minimum = 1,
@@ -218,6 +239,23 @@ public sealed class MainWindow : Window
             _runs.Changed += () => Dispatcher.UIThread.Post(RefreshRun);
         }
         _useProbed.Click += (_, _) => UseProbedWindow();
+
+        _instanceMode.IsChecked = _options.InstanceMode;
+        _instanceMode.IsCheckedChanged += (_, _) =>
+        {
+            _options.InstanceMode = _instanceMode.IsChecked == true;
+            MarkDirty();
+        };
+
+        _exitWaypoint.Value = _options.ResolveExitWaypoint() + 1;
+        _exitWaypoint.ValueChanged += (_, e) =>
+        {
+            if (e.NewValue is { } value)
+            {
+                _options.ExitWaypoint = (int)value;
+                MarkDirty();
+            }
+        };
 
         _arrivalRadius.Value = _options.WaypointArrivalRadius;
         _arrivalRadius.ValueChanged += (_, e) =>
@@ -1108,6 +1146,25 @@ public sealed class MainWindow : Window
         actions.Children.Add(_routeStatus);
 
         panel.Children.Add(actions);
+
+        var instance = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        instance.Children.Add(_instanceMode);
+        instance.Children.Add(new TextBlock
+        {
+            Text = "sortie = waypoint n°",
+            Foreground = Muted,
+            FontSize = 11.5,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        instance.Children.Add(_exitWaypoint);
+        panel.Children.Add(instance);
+
+        panel.Children.Add(Note
+        (
+            "En mode instance la route n'est pas un circuit : les autres points servent à attirer "
+            + "les monstres, et celui de sortie est pris quand le serveur annonce la salle finie."
+        ));
 
         var radius = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         radius.Children.Add(new TextBlock

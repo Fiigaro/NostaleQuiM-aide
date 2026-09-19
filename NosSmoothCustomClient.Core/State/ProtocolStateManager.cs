@@ -66,6 +66,7 @@ public sealed class ProtocolStateManager
 
     private long _ownCharacterId = -1;
     private int _currentMapId = -1;
+    private volatile bool _roomCleared;
     private int _waypointIndex;
 
     private long _lastHpPotionStamp;
@@ -137,6 +138,18 @@ public sealed class ProtocolStateManager
             }
         }
     }
+
+    /// <summary>
+    /// Gets a value indicating whether the server has wiped the entities on this map.
+    /// </summary>
+    /// <remarks>
+    /// In an instance this is the room being finished: the monsters go in one packet rather than
+    /// one at a time, which is why it says something a count of them never could. A count follows
+    /// view range - monsters leave it by walking, and come back the same way - so it drops and
+    /// rises with the character and reads zero in an empty corner of a room still full of them.
+    /// Both recorded runs end their room on this and nothing else.
+    /// </remarks>
+    public bool RoomCleared => _roomCleared;
 
     /// <summary>Gets the map the character is currently on, or -1 while it is not known yet.</summary>
     public int CurrentMapId => Volatile.Read(ref _currentMapId);
@@ -288,6 +301,15 @@ public sealed class ProtocolStateManager
     /// <summary>
     /// Drops every tracked entity, e.g. on a map change.
     /// </summary>
+    /// <summary>
+    /// Records that the server wiped the map's entities.
+    /// </summary>
+    public void MarkRoomCleared()
+        => _roomCleared = true;
+
+    /// <summary>
+    /// Forgets every tracked entity.
+    /// </summary>
     public void ForgetAllEntities()
     {
         _entities.Clear();
@@ -374,6 +396,8 @@ public sealed class ProtocolStateManager
             return false;
         }
 
+        // A new room has its own monsters; whatever was cleared belonged to the last one.
+        _roomCleared = false;
         ForgetAllEntities();
         ClearTarget();
         return true;

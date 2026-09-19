@@ -140,6 +140,7 @@ public sealed class EntitySpawnResponder :
         // to none by being killed, so a count reaching zero means this packet far more often than
         // it means the fight is over - which is exactly the pair a recorded run has to tell apart.
         _journal.Note("mapclear : toutes les entités effacées d'un coup");
+        _state.MarkRoomCleared();
 
         _logger.LogInformation("Map cleared - dropping every tracked entity.");
         _state.ForgetAllEntities();
