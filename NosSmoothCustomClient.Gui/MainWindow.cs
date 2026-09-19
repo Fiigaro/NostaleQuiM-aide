@@ -171,7 +171,7 @@ public sealed class MainWindow : Window
         _resetBuffs.Click += (_, _) => { _buffs.Reset(); Refresh(); };
         _live.Click += (_, _) => ToggleLive();
         _arm.Click += (_, _) => ToggleArm();
-        _clearRoute.Click += (_, _) => { _recorder?.Clear(); RefreshRoute(); };
+        _clearRoute.Click += (_, _) => ClearRoute();
         _testClick.Click += (_, _) => TestClick();
         _saveRoute.Click += (_, _) => SaveRoute();
 
@@ -959,8 +959,7 @@ public sealed class MainWindow : Window
         {
             _arm.IsEnabled = false;
             _saveRoute.IsEnabled = false;
-            _clearRoute.IsEnabled = false;
-            _routeStatus.Text = "disponible en mode capture (--pcap)";
+            _routeStatus.Text = "enregistrement disponible en mode capture (--pcap)";
         }
 
         return panel;
@@ -986,6 +985,27 @@ public sealed class MainWindow : Window
 
         _recorder.Armed = !_recorder.Armed;
         RefreshRoute();
+    }
+
+    private void ClearRoute()
+    {
+        // Deliberately not gated on the recorder: wiping the route the bot walks has nothing to do
+        // with being able to record a new one, and a button that needs --pcap to delete four lines
+        // of configuration is a button that looks broken.
+        if (_recorder is not null)
+        {
+            _recorder.Clear();
+        }
+        else
+        {
+            _options.Waypoints = new List<Waypoint>();
+            _options.RouteMapId = null;
+        }
+
+        RefreshRoute();
+
+        _routeStatus.Text = "route effacée (le fichier n'est pas touché : relancer la restaure)";
+        _routeStatus.Foreground = Muted;
     }
 
     /// <summary>

@@ -112,15 +112,39 @@ public sealed class WaypointRecorder : BackgroundService
         }
     }
 
-    /// <summary>Discards the recorded route.</summary>
+    /// <summary>
+    /// Discards the route: the points recorded so far and the one the bot is currently walking.
+    /// </summary>
+    /// <remarks>
+    /// Clearing only the recording buffer was indistinguishable from doing nothing. The panel falls
+    /// back to showing the configured route when no recording is in progress, so the same list
+    /// stayed on screen, and the bot went on walking the route the button appeared to have deleted.
+    /// The file is deliberately left alone: nothing is lost until the route is saved, so a clear
+    /// pressed by mistake is undone by restarting.
+    /// </remarks>
     public void Clear()
     {
+        int recorded;
+
         lock (_sync)
         {
+            recorded = _recorded.Count;
             _recorded.Clear();
         }
 
-        _logger.LogInformation("Recorded route cleared.");
+        var configured = _options.Waypoints.Count;
+        _options.Waypoints = new List<Waypoint>();
+        _options.RouteMapId = null;
+
+        _logger.LogInformation
+        (
+            "Route cleared: {Recorded} point(s) being recorded and {Configured} in use. " +
+            "The saved file is untouched, so restarting brings the old route back - record a new one " +
+            "and save it to replace it.",
+            recorded,
+            configured
+        );
+
         Changed?.Invoke();
     }
 

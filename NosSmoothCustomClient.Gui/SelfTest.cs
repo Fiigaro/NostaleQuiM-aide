@@ -120,6 +120,23 @@ public static class SelfTest
             }
         }
 
+        var clearWorks = false;
+        var clearButton = visuals.OfType<Button>().FirstOrDefault(b => b.Content as string == "Effacer");
+
+        if (clearButton is not null)
+        {
+            var before = options.Waypoints.ToList();
+            options.Waypoints = new List<Waypoint> { new(10, 10, 100, 100), new(20, 20, 200, 200) };
+
+            Click(clearButton);
+            clearWorks = options.Waypoints.Count == 0
+                         && texts.Count > 0
+                         && window.GetVisualDescendants().OfType<TextBlock>()
+                             .Any(t => (t.Text ?? string.Empty).Contains("aucun point"));
+
+            options.Waypoints = before;
+        }
+
         var (savedPath, saveError) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
         var saveWorks = savedPath is not null && File.Exists(savedPath);
         if (savedPath is not null)
@@ -166,6 +183,10 @@ public static class SelfTest
             // Le panneau qui dit pourquoi le bot n'agit pas. Il doit nommer la cause, pas seulement
             // exister : une ligne rouge sans raison ne vaut pas mieux que le silence.
             ("diagnostic rendu", texts.Any(t => t.Contains("Cibler et attaquer"))),
+
+            // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
+            // invisible : sinon le bouton ne se distingue pas d'un bouton mort.
+            ("effacer vide la route en cours", clearWorks),
             ("diagnostic explique les blocages", BotReadiness.Describe(options, state, null)
                 .Where(i => !i.Ready)
                 .All(i => !string.IsNullOrWhiteSpace(i.Detail) && texts.Contains(i.Detail)))
