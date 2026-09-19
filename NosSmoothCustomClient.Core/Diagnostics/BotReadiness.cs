@@ -72,6 +72,11 @@ public static class BotReadiness
         items.Add(Key("Ramasser", options.Keys.Loot));
         items.Add(Route(options, state));
 
+        if (options.InstanceMode)
+        {
+            items.Add(Instance(options, state));
+        }
+
         if (input is not null)
         {
             items.Add(ClickMode(options, input));
@@ -141,6 +146,38 @@ public static class BotReadiness
         }
 
         return new ReadinessItem("Déplacement", true, $"{clickable} waypoint(s) prêts");
+    }
+
+    private static ReadinessItem Instance(BotOptions options, ProtocolStateManager state)
+    {
+        var exit = options.ResolveExitWaypoint();
+
+        if (exit < 0)
+        {
+            return new ReadinessItem("Mode instance", false, "aucun waypoint de sortie : le bot ne saura pas sortir");
+        }
+
+        // The one that silences the bot outright, and the one nothing else reveals: told the room is
+        // over, it stops hunting on purpose - which from the outside is indistinguishable from a bot
+        // that has broken. If that flag is stuck on, this line is where it shows.
+        if (state.RoomCleared)
+        {
+            return new ReadinessItem
+            (
+                "Mode instance",
+                false,
+                $"salle annoncée TERMINÉE : le bot ne cherche plus de monstre et va vers la sortie "
+                + $"{options.Waypoints[exit]}. S'il reste bloqué là, c'est un mapclear d'une salle "
+                + "précédente - change de carte pour le remettre à zéro"
+            );
+        }
+
+        return new ReadinessItem
+        (
+            "Mode instance",
+            true,
+            $"en cours, sortie = waypoint {exit + 1} {options.Waypoints[exit]}"
+        );
     }
 
     private static ReadinessItem ClickMode(BotOptions options, SwitchableGameInput input)
