@@ -47,6 +47,19 @@ public sealed class InputActuator : IBotActuator
     public bool WalkIsSustained => true;
 
     /// <inheritdoc />
+    public bool TryAnotherWayToMove(out string what)
+    {
+        if (_input is SwitchableGameInput switchable && switchable.EscalateClickMode() is { } changed)
+        {
+            what = changed;
+            return true;
+        }
+
+        what = string.Empty;
+        return false;
+    }
+
+    /// <inheritdoc />
     public Task<bool> ApproachAsync(int x, int y, CancellationToken ct = default)
         => Task.FromResult(false);
 
@@ -56,6 +69,13 @@ public sealed class InputActuator : IBotActuator
         if (!_input.TryAttach(out error))
         {
             return false;
+        }
+
+        // A pinned mode is an instruction, not a starting point: Auto is the only one the bot may
+        // change on its own.
+        if (_input is SwitchableGameInput switchable && _options.MinimapClickMode != MinimapClickMode.Auto)
+        {
+            switchable.PinClickMode(_options.MinimapClickMode);
         }
 
         // A missing binding is not an error, it just means that action is unavailable. Saying so at

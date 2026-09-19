@@ -20,6 +20,7 @@ public sealed class SwitchableGameInput : IGameInput
 
     private volatile bool _liveMode;
     private bool _liveAttached;
+    private bool _clickModePinned;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SwitchableGameInput"/> class.
@@ -42,6 +43,62 @@ public sealed class SwitchableGameInput : IGameInput
 
     /// <summary>Gets a value indicating whether keystrokes currently reach the game.</summary>
     public bool IsLive => _liveMode;
+
+    /// <summary>Gets how minimap clicks are currently delivered.</summary>
+    public MinimapClickMode ClickMode => _live.ClickMode;
+
+    /// <summary>
+    /// Fixes how clicks are sent, so the bot will not change it on its own.
+    /// </summary>
+    /// <param name="mode">The mode to use.</param>
+    public void PinClickMode(MinimapClickMode mode)
+    {
+        _clickModePinned = true;
+        _live.ClickMode = mode;
+        _logger.LogInformation("Minimap clicks pinned to {Mode} by configuration.", mode);
+    }
+
+    /// <summary>
+    /// Switches to a way of clicking the client cannot ignore.
+    /// </summary>
+    /// <returns>A description of what changed, or null when there is nothing left to try.</returns>
+    /// <remarks>
+    /// Posted mouse messages report success as soon as they are queued, so a client that ignores
+    /// them looks exactly like one that is obeying. The only evidence either way is whether the
+    /// character moved, which the decision loop has and this layer does not - so escalation is
+    /// driven from there rather than guessed at here.
+    /// </remarks>
+    public string? EscalateClickMode()
+    {
+        if (_clickModePinned)
+        {
+            _logger.LogWarning
+            (
+                "Minimap clicks are not moving the character, but MinimapClickMode is pinned to " +
+                "{Mode} in appsettings.json, so nothing else will be tried.",
+                _live.ClickMode
+            );
+
+            return null;
+        }
+
+        if (_live.ClickMode == MinimapClickMode.RealCursor)
+        {
+            return null;
+        }
+
+        _live.ClickMode = MinimapClickMode.RealCursor;
+
+        _logger.LogWarning
+        (
+            "Posted minimap clicks are not moving the character, so they are being sent with the " +
+            "real mouse pointer instead. The cursor will jump briefly each time the bot walks, and " +
+            "the game window has to be visible at that point. Set MinimapClickMode to \"Posted\" in " +
+            "appsettings.json to forbid this."
+        );
+
+        return "clic avec le vrai curseur";
+    }
 
     /// <inheritdoc />
     public string Description

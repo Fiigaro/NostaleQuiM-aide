@@ -72,6 +72,11 @@ public static class BotReadiness
         items.Add(Key("Ramasser", options.Keys.Loot));
         items.Add(Route(options, state));
 
+        if (input is not null)
+        {
+            items.Add(ClickMode(options, input));
+        }
+
         return items;
     }
 
@@ -115,6 +120,19 @@ public static class BotReadiness
         }
 
         return new ReadinessItem("Déplacement", true, $"{clickable} waypoint(s) prêts");
+    }
+
+    private static ReadinessItem ClickMode(BotOptions options, SwitchableGameInput input)
+    {
+        var mode = input.ClickMode switch
+        {
+            MinimapClickMode.RealCursor => "vrai curseur : la souris bouge, la fenêtre doit être visible",
+            _ => "messages postés : la souris est libre, le jeu peut tourner en arrière-plan"
+        };
+
+        return new ReadinessItem("Clic minimap", true, options.MinimapClickMode == MinimapClickMode.Auto
+            ? mode + " (bascule seul si rien ne bouge)"
+            : mode + " (fixé par la configuration)");
     }
 
     private static ReadinessItem Key(string name, string? binding)

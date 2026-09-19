@@ -47,6 +47,18 @@ public interface IBotActuator
     /// </remarks>
     bool WalkIsSustained { get; }
 
+    /// <summary>
+    /// Tries a different way of moving, after an order that was accepted but changed nothing.
+    /// </summary>
+    /// <param name="what">What changed, when something did.</param>
+    /// <returns>True when there was something left to try.</returns>
+    /// <remarks>
+    /// Some ways of talking to a client report success for a message the client then ignores. Only
+    /// the caller watching the character knows that happened, so the decision to try something else
+    /// is made there and carried out here.
+    /// </remarks>
+    bool TryAnotherWayToMove(out string what);
+
     /// <summary>Takes one step towards a cell.</summary>
     /// <param name="x">Destination X.</param>
     /// <param name="y">Destination Y.</param>

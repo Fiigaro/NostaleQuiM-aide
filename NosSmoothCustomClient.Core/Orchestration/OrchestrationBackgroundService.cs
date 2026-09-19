@@ -36,6 +36,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private Waypoint _walkedFrom;
     private DateTimeOffset _walkedAt;
     private DateTimeOffset _nextRefusalWarning = DateTimeOffset.MinValue;
+    private int _stalls;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationBackgroundService"/> class.
@@ -495,12 +496,32 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             // Moving. Reset the stall clock against where we are now.
             _walkedFrom = position;
             _walkedAt = now;
+            _stalls = 0;
             return false;
         }
 
         if (now - _walkedAt < _options.WalkReissueInterval)
         {
             return false;
+        }
+
+        _stalls++;
+
+        // Once is a lost click. Twice in a row is the order being accepted and ignored, which no
+        // amount of repeating will fix - so change how it is sent before trying again.
+        if (_stalls >= 2 && _actuator.TryAnotherWayToMove(out var changed))
+        {
+            _logger.LogWarning
+            (
+                "Waypoint {Index} was clicked {Stalls} times without the character moving. " +
+                "Switching to: {Changed}.",
+                index + 1,
+                _stalls,
+                changed
+            );
+
+            _stalls = 0;
+            return true;
         }
 
         _logger.LogWarning

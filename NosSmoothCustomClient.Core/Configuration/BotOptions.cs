@@ -1,4 +1,5 @@
 using NosSmooth.Packets.Enums.Inventory;
+using NosSmoothCustomClient.Input;
 
 namespace NosSmoothCustomClient.Configuration;
 
@@ -120,6 +121,16 @@ public sealed class BotOptions
     /// If no confirmation arrives the skill goes back to ready, because nothing happened.
     /// </remarks>
     public TimeSpan SkillConfirmationWindow { get; set; } = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>
+    /// Gets or sets how minimap clicks are delivered to the client.
+    /// </summary>
+    /// <remarks>
+    /// Auto starts with posted messages, which leave the mouse alone, and moves to the real pointer
+    /// if the character never actually walks. Pin it to Posted to forbid the bot ever taking the
+    /// cursor, at the price of no movement at all on a client that ignores posted clicks.
+    /// </remarks>
+    public MinimapClickMode MinimapClickMode { get; set; } = MinimapClickMode.Auto;
 
     /// <summary>
     /// Gets or sets how long a stalled journey waits before the movement order is sent again.

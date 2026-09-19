@@ -42,7 +42,8 @@ public static class CombatSelfCheck
             await ChangingMapClearsStaleStateAsync().ConfigureAwait(false),
             await RouteIsNotWalkedOnTheWrongMapAsync().ConfigureAwait(false),
             await WalkingIsNotRestartedEveryTickAsync().ConfigureAwait(false),
-            await StalledWalkIsSentAgainAsync().ConfigureAwait(false)
+            await StalledWalkIsSentAgainAsync().ConfigureAwait(false),
+            await IgnoredClicksChangeHowWeClickAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -237,6 +238,29 @@ public static class CombatSelfCheck
         return ("un trajet bloque est relance", heldAtFirst && sentAgain);
     }
 
+    private static async Task<(string, bool)> IgnoredClicksChangeHowWeClickAsync()
+    {
+        var (loop, state, _, actuator, options) = Build(selectsTargetItself: true);
+        options.Waypoints = new List<Waypoint> { new(80, 80, 400, 300) };
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.TickInterval = TimeSpan.Zero;
+        options.WalkReissueInterval = TimeSpan.FromMilliseconds(80);
+
+        // The order is accepted every time and the character never moves: repeating it harder is
+        // not the answer, changing how it is sent is.
+        state.UpdatePosition(50, 50);
+
+        // Five, not three: the first tick goes to the one-off target probe, so only the rest of
+        // them reach navigation at all.
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(120).ConfigureAwait(false);
+        }
+
+        return ("des clics ignores font changer de methode", actuator.Escalations > 0);
+    }
+
     private static PacketEventArgs<SuPacket> Su(int vnum, short cooldown, long casterId)
         => new
         (
@@ -321,6 +345,14 @@ public static class CombatSelfCheck
         public bool SelectsTargetItself { get; }
 
         public bool WalkIsSustained => SelectsTargetItself;
+
+        public bool TryAnotherWayToMove(out string what)
+        {
+            what = "test";
+            return Escalations++ == 0;
+        }
+
+        public int Escalations { get; private set; }
 
         public bool TryPrepare(out string error)
         {

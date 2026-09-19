@@ -28,6 +28,8 @@ public sealed class WindowsGameInput : IGameInput
     private const int MkLButton = 0x0001;
     private const uint WmChar = 0x0102;
     private const uint MapvkVkToVsc = 0;
+    private const uint MouseEventLeftDown = 0x0002;
+    private const uint MouseEventLeftUp = 0x0004;
 
     /// <summary>
     /// The Delphi form class of the NosTale client window.
@@ -61,6 +63,9 @@ public sealed class WindowsGameInput : IGameInput
 
     /// <summary>Gets the bound window handle, or zero.</summary>
     public IntPtr Window => _window;
+
+    /// <summary>Gets or sets how a minimap click is delivered.</summary>
+    public MinimapClickMode ClickMode { get; set; } = MinimapClickMode.Posted;
 
     /// <inheritdoc />
     public bool TryAttach(out string error)
@@ -148,6 +153,18 @@ public sealed class WindowsGameInput : IGameInput
 
     /// <inheritdoc />
     public bool ClickAt(int x, int y)
+        => ClickMode == MinimapClickMode.RealCursor ? ClickWithCursor(x, y) : PostClick(x, y);
+
+    /// <summary>
+    /// Posts a click as window messages, leaving the real mouse alone.
+    /// </summary>
+    /// <remarks>
+    /// Works with the game in the background, when it works at all. PostMessage reports whether the
+    /// message was queued, never whether the client acted on it - the same trap WM_CHAR fell into -
+    /// so a true here is not evidence the character moved. Many clients hit-test the minimap against
+    /// the real cursor rather than the message's coordinates, and ignore this entirely.
+    /// </remarks>
+    private bool PostClick(int x, int y)
     {
         if (_window == IntPtr.Zero)
         {
@@ -168,6 +185,49 @@ public sealed class WindowsGameInput : IGameInput
         }
 
         return posted;
+    }
+
+    /// <summary>
+    /// Moves the real mouse to the point, clicks, and puts it back.
+    /// </summary>
+    /// <remarks>
+    /// The fallback for a client that ignores posted mouse messages. It works because there is
+    /// nothing to ignore - this is the physical pointer. The cost is real: the cursor jumps for a
+    /// moment, so the machine is not usable for anything else while the bot walks, and the game has
+    /// to be the window under that point. The original position is restored so the interruption is
+    /// as short as it can be.
+    /// </remarks>
+    private bool ClickWithCursor(int x, int y)
+    {
+        if (_window == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var point = new Point { X = x, Y = y };
+        if (!ClientToScreen(_window, ref point))
+        {
+            _logger.LogWarning("Could not translate ({X},{Y}) into screen coordinates.", x, y);
+            return false;
+        }
+
+        var hadCursor = GetCursorPos(out var previous);
+
+        if (!SetCursorPos(point.X, point.Y))
+        {
+            _logger.LogWarning("Windows refused to move the cursor to ({X},{Y}).", point.X, point.Y);
+            return false;
+        }
+
+        mouse_event(MouseEventLeftDown, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(MouseEventLeftUp, 0, 0, 0, UIntPtr.Zero);
+
+        if (hadCursor)
+        {
+            SetCursorPos(previous.X, previous.Y);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -218,6 +278,21 @@ public sealed class WindowsGameInput : IGameInput
         return true;
     }
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr hWnd, ref Point point);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out Point point);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool PostMessage(IntPtr hWnd, uint msg, uint wParam, IntPtr lParam);
@@ -228,6 +303,13 @@ public sealed class WindowsGameInput : IGameInput
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetClientRect(IntPtr hWnd, out Rect rect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Point
+    {
+        public int X;
+        public int Y;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect

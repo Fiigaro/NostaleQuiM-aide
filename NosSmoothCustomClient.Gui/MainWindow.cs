@@ -66,6 +66,7 @@ public sealed class MainWindow : Window
     private readonly Button _live = new() { Width = 150, Height = 32 };
     private readonly Button _arm = new() { Width = 190, Height = 28 };
     private readonly Button _clearRoute = new() { Content = "Effacer", Width = 90, Height = 28 };
+    private readonly Button _testClick = new() { Content = "Tester le clic (point 1)", Width = 190, Height = 28 };
     private readonly Button _saveRoute = new() { Content = "Enregistrer la route", Width = 170, Height = 28 };
     private readonly StackPanel _routeList = new() { Spacing = 3 };
     private readonly StackPanel _readiness = new() { Spacing = 3 };
@@ -160,6 +161,7 @@ public sealed class MainWindow : Window
         _live.Click += (_, _) => ToggleLive();
         _arm.Click += (_, _) => ToggleArm();
         _clearRoute.Click += (_, _) => { _recorder?.Clear(); RefreshRoute(); };
+        _testClick.Click += (_, _) => TestClick();
         _saveRoute.Click += (_, _) => SaveRoute();
 
         if (_recorder is not null)
@@ -933,6 +935,7 @@ public sealed class MainWindow : Window
         actions.Children.Add(_arm);
         actions.Children.Add(_saveRoute);
         actions.Children.Add(_clearRoute);
+        actions.Children.Add(_testClick);
         actions.Children.Add(_routeStatus);
 
         panel.Children.Add(actions);
@@ -971,6 +974,47 @@ public sealed class MainWindow : Window
         RefreshRoute();
     }
 
+    /// <summary>
+    /// Clicks the first waypoint's minimap point, right now.
+    /// </summary>
+    /// <remarks>
+    /// Waiting for the loop to try, stall, and escalate takes the better part of ten seconds and
+    /// buries the answer in the log. One click on demand settles in a second whether the point is
+    /// right and whether the client reacts to clicks at all.
+    /// </remarks>
+    private void TestClick()
+    {
+        if (_input is null)
+        {
+            _routeStatus.Text = "disponible en mode capture (--pcap)";
+            _routeStatus.Foreground = Blocked;
+            return;
+        }
+
+        var route = _recorder?.Recorded is { Count: > 0 } recorded ? recorded : _options.Waypoints.ToArray();
+
+        if (route.Count == 0 || route[0] is not { ClickX: { } x, ClickY: { } y })
+        {
+            _routeStatus.Text = "le point 1 n'a pas de clic minimap : enregistre la route (F9/F10)";
+            _routeStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (!_input.IsLive)
+        {
+            _routeStatus.Text = "passe en JOUE d'abord, sinon le clic n'est que simulé";
+            _routeStatus.Foreground = Blocked;
+            return;
+        }
+
+        var sent = _input.ClickAt(x, y);
+        _routeStatus.Text = sent
+            ? $"clic envoyé en ({x},{y}) par « {_input.ClickMode} » — regarde si le personnage part"
+            : $"le clic en ({x},{y}) a été refusé par la fenêtre";
+
+        _routeStatus.Foreground = sent ? Ready : Blocked;
+    }
+
     private void SaveRoute()
     {
         if (_recorder is null)
@@ -1006,10 +1050,7 @@ public sealed class MainWindow : Window
             _arm.IsEnabled = true;
             _arm.Foreground = _recorder.Armed ? Ready : Ink;
 
-            if (_recorder.Armed && _routeStatus.Foreground == Blocked)
-            {
-                _routeStatus.Text = string.Empty;
-            }
+
         }
 
         var route = _recorder?.Recorded ?? Array.Empty<Waypoint>();

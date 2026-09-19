@@ -62,6 +62,14 @@ public sealed class PacketActuator : IBotActuator
     public bool WalkIsSustained => false;
 
     /// <inheritdoc />
+    public bool TryAnotherWayToMove(out string what)
+    {
+        // A walk packet the server accepted is a walk that happened; there is no second way.
+        what = string.Empty;
+        return false;
+    }
+
+    /// <inheritdoc />
     public bool TryPrepare(out string error)
     {
         error = string.Empty;
