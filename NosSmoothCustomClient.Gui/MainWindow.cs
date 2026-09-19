@@ -474,11 +474,22 @@ public sealed class MainWindow : Window
 
         var title = new StackPanel { Spacing = 2 };
         title.Children.Add(Label("NosSmoothCustomClient", 17, FontWeight.Bold));
+
+        // Naming the mode correctly matters more than it looks: this line used to call capture mode
+        // "simulator" too, so a bot reading the real game told its operator none of it was real.
+        var (modeText, modeColour) = _mode switch
+        {
+            RunMode.Pcap => ("Mode : capture — lecture du vrai client", Ready),
+            RunMode.Attach => ("Mode : client attaché", Ready),
+            _ => ("MODE SIMULATEUR — faux serveur, rien ici n'est ton personnage", Blocked)
+        };
+
         title.Children.Add(new TextBlock
         {
-            Text = _mode == RunMode.Attach ? "Mode : client attaché" : "Mode : simulateur (aucun jeu attaché)",
-            Foreground = Muted,
-            FontSize = 11
+            Text = modeText,
+            Foreground = modeColour,
+            FontSize = 11.5,
+            FontWeight = _mode == RunMode.Simulate ? FontWeight.SemiBold : FontWeight.Normal
         });
 
         _status.VerticalAlignment = VerticalAlignment.Center;

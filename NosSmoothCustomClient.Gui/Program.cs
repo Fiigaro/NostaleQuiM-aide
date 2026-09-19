@@ -49,6 +49,39 @@ public static class Program
         App.Services = host.Services;
         App.Mode = cli.Mode;
 
+        // A transport nobody asked for is the simulator, and that is worth refusing rather than
+        // starting: a "--pcap" that never reached the process - a forgotten "--" separator does it -
+        // produces a window full of invented vitals that looks like a bot which stopped seeing the
+        // game. Say so instead, and name the likely cause.
+        if (!cli.TransportRequested)
+        {
+            App.Services = null;
+            App.StartupError =
+                """
+                Aucun transport n'a été demandé, donc le simulateur aurait démarré : tout ce que la
+                fenêtre aurait affiché aurait été inventé, sans aucun rapport avec ton personnage.
+
+                Le plus souvent, c'est le séparateur « -- » qui manque. Les options du bot viennent
+                APRÈS lui, celles de dotnet avant :
+
+                    dotnet run --project NosSmoothCustomClient.Gui -- --pcap --pid 9900
+                                                                   ^^
+
+                Pour regarder le simulateur volontairement :
+
+                    dotnet run --project NosSmoothCustomClient.Gui -- --simulate
+                """;
+
+            if (!args.Contains("--selftest", StringComparer.OrdinalIgnoreCase))
+            {
+                BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+                return 4;
+            }
+
+            App.Services = host.Services;
+            App.StartupError = null;
+        }
+
         if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
         {
             await Console.Error.WriteLineAsync(transportError).ConfigureAwait(false);

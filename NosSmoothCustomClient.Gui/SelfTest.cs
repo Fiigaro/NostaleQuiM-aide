@@ -22,6 +22,8 @@ namespace NosSmoothCustomClient.Gui;
 /// </remarks>
 public static class SelfTest
 {
+    private static IServiceProvider? _services;
+
     /// <summary>
     /// Runs the headless construction pass.
     /// </summary>
@@ -40,6 +42,7 @@ public static class SelfTest
 
         // The engine has been running for a few seconds by now; assert against what it actually
         // produced rather than against values injected here.
+        _services = services;
         var state = services.GetRequiredService<ProtocolStateManager>();
         var options = services.GetRequiredService<BotOptions>();
         var logs = services.GetRequiredService<LogBuffer>();
@@ -189,6 +192,10 @@ public static class SelfTest
             // plus » sans explication.
             ("un echec de liaison s'affiche", StartupErrorShows()),
 
+            // L'en-tête appelait la capture « simulateur » elle aussi, donc un bot qui lisait le
+            // vrai jeu annonçait à son opérateur que rien n'était réel.
+            ("le mode est nomme correctement", ModeIsNamedCorrectly()),
+
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.
             ("effacer vide la route en cours", clearWorks),
@@ -211,6 +218,26 @@ public static class SelfTest
         Console.WriteLine($"{checks.Length - failed}/{checks.Length} verifications passees, {visuals.Count} controles dans l'arbre visuel.");
 
         return failed == 0 ? 0 : 3;
+    }
+
+    private static bool ModeIsNamedCorrectly()
+    {
+        // Shown before reading: an unrealised window has no visual tree, so the assertion would
+        // pass against an empty list rather than against what the operator sees.
+        var window = App.CreateMainWindow(_services!, RunMode.Pcap);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var texts = window.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Select(t => t.Text ?? string.Empty)
+            .ToList();
+
+        window.Close();
+
+        // Capture must never be described as the simulator, and the simulator must say plainly
+        // that nothing on screen belongs to the player.
+        return texts.Any(t => t.Contains("capture")) && !texts.Any(t => t.Contains("MODE SIMULATEUR"));
     }
 
     private static bool StartupErrorShows()

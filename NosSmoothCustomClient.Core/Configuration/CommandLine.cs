@@ -16,7 +16,7 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="TestKey">A single key to test, instead of the full sequence.</param>
 /// <param name="RecordWaypoints">Whether to record a patrol route instead of running the bot.</param>
 /// <param name="Identify">Whether to flash each client window and exit.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey, bool RecordWaypoints, bool Identify)
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey, bool RecordWaypoints, bool Identify, bool TransportRequested = true)
 {
     /// <summary>
     /// Parses the arguments.
@@ -26,6 +26,12 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
     public static CommandLine Parse(string[] args)
     {
         var mode = RunMode.Simulate;
+
+        // Whether a transport was asked for at all. Falling back to the simulator is the right
+        // default, but doing it silently means a flag that never reached the process - a missing
+        // "--" separator is enough - looks exactly like a bot that stopped seeing the game.
+        var requested = Has(args, "--attach") || Has(args, "--pcap") || Has(args, "--listen")
+                        || Has(args, "--record-waypoints") || Has(args, "--simulate");
 
         if (Has(args, "--attach"))
         {
@@ -49,7 +55,8 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             Has(args, "--play"),
             ReadValue(args, "--key"),
             Has(args, "--record-waypoints"),
-            Has(args, "--identify")
+            Has(args, "--identify"),
+            requested
         );
     }
 
