@@ -153,6 +153,22 @@ public static class SelfTest
             rewardPlaysOnDemand = silentBefore && !string.IsNullOrWhiteSpace(rewardStatus.Text);
         }
 
+        // La touche d'enregistrement doit atteindre les options, et les textes doivent la suivre.
+        var recordKeyEdits = false;
+        if (visuals.OfType<ComboBox>().FirstOrDefault(c => c.Name == "recordKey") is { } keyBox)
+        {
+            var before = options.RecordRunKey;
+            keyBox.SelectedItem = "Pause";
+            Dispatcher.UIThread.RunJobs();
+
+            recordKeyEdits = options.RecordRunKey == "Pause"
+                             && visuals.OfType<TextBlock>()
+                                 .Any(t => t.Text is { } text && text.Contains("Pause") && text.Contains("lancement"));
+
+            keyBox.SelectedItem = before;
+            Dispatcher.UIThread.RunJobs();
+        }
+
         // Lancer au démarrage doit atteindre les options en direct.
         var autoLaunchEdits = false;
         var autoLaunchBox = boxes.FirstOrDefault(b => (b.Content as string)?.Contains("au démarrage") == true);
@@ -305,6 +321,11 @@ public static class SelfTest
             // listé ni relisible après sauvegarde, il est perdu au prochain démarrage.
             ("sequence de lancement listee", texts.Any(t => t.Contains("MISSION")) && LaunchSequenceReadsBack()),
             ("lancement au demarrage reglable", autoLaunchEdits),
+
+            // La touche d'enregistrement était figée sur F11, qui ouvre la boutique du jeu : toute
+            // capture démarrait derrière une fenêtre. Elle se change donc ici, et tout ce qui la
+            // nomme doit suivre - un panneau qui dit encore F11 après coup est pire que rien.
+            ("touche d'enregistrement reglable", recordKeyEdits),
             ("le bouton de lancement repond toujours", launchAnswers),
 
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
@@ -348,6 +369,7 @@ public static class SelfTest
         var options = new BotOptions
         {
             AutoLaunchInstance = true,
+            RecordRunKey = "Pause",
             StartupSequence = new List<StartupStep>
             {
                 new("assis", StartupAction.Key, Key: "C", WaitBeforeMs: 700),
@@ -367,7 +389,8 @@ public static class SelfTest
         // for is a step played into a loading screen.
         var reloaded = ReadBack(path);
 
-        return reloaded.AutoLaunchInstance
+        return reloaded.RecordRunKey == "Pause"
+               && reloaded.AutoLaunchInstance
                && reloaded.StartupSequence.Count == 3
                && reloaded.StartupSequence[0].Key == "C"
                && reloaded.StartupSequence[0].Action == StartupAction.Key

@@ -89,6 +89,9 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets whether the launch sequence plays when the bot is started.</summary>
     public bool? AutoLaunchInstance { get; set; }
 
+    /// <summary>Gets or sets the key that starts and stops recording a run.</summary>
+    public string? RecordRunKey { get; set; }
+
     /// <summary>Gets or sets the attack rotation, in priority order.</summary>
     public List<SkillEntry>? Skills { get; set; }
 
@@ -274,6 +277,12 @@ public sealed class BotConfigurationFile
         }
 
         Set(file.AutoLaunchInstance, v => options.AutoLaunchInstance = v, "AutoLaunchInstance", applied);
+
+        if (HotKey.TryParse(file.RecordRunKey, out var recordKey))
+        {
+            options.RecordRunKey = recordKey.Label;
+            applied.Add("RecordRunKey");
+        }
 
         if (file.StartupSequence is { Count: > 0 } launch)
         {

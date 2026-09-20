@@ -67,7 +67,8 @@ public static class CombatSelfCheck
             await TheRewardOutranksEverythingElseAsync().ConfigureAwait(false),
             await TheLaunchWaitsForTheWorldAsync().ConfigureAwait(false),
             await ALaunchStepGivesUpRatherThanStopsAsync().ConfigureAwait(false),
-            ARecordedRunBecomesALaunch()
+            ARecordedRunBecomesALaunch(),
+            TheRecordingKeyIsFreeOfTheOthers()
         };
 
         var failed = 0;
@@ -674,6 +675,23 @@ public static class CombatSelfCheck
 
         return ("un run enregistré devient une séquence de lancement",
             merged && waitsForTheMap && waitsForTheWalk && noRightClick);
+    }
+
+    private static (string, bool) TheRecordingKeyIsFreeOfTheOthers()
+    {
+        // F7 to F10 belong to the waypoint recorder. Offering one of them here would arm a route
+        // point and start a run on the same press, and nothing would say why either misbehaved.
+        var takenByTheRoute = new[] { 0x76, 0x77, 0x78, 0x79 };
+        var noCollision = HotKey.Choices.All(k => !takenByTheRoute.Contains(k.VirtualKey));
+
+        // A value nobody recognises must fall back to something that works rather than to nothing:
+        // a hotkey silently bound to virtual key zero is a recorder that never starts.
+        var fallsBack = HotKey.Resolve("touche inventée").VirtualKey == HotKey.Choices[0].VirtualKey
+                        && HotKey.Resolve(null).VirtualKey != 0;
+
+        var reads = HotKey.TryParse("pause", out var pause) && pause.VirtualKey == 0x13;
+
+        return ("la touche d'enregistrement ne marche sur aucune autre", noCollision && fallsBack && reads);
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()

@@ -201,6 +201,16 @@ public sealed class BotOptions
     public IList<StartupStep> StartupSequence { get; set; } = new List<StartupStep>();
 
     /// <summary>
+    /// Gets or sets the key that starts and stops recording a run, pressed inside the game.
+    /// </summary>
+    /// <remarks>
+    /// A setting rather than a constant because which keys are free belongs to the client: F11 was
+    /// hard-coded and opens the shop on this one, so every recording started with a shop window in
+    /// the way. Anything here has to be a key the game itself ignores.
+    /// </remarks>
+    public string RecordRunKey { get; set; } = "F12";
+
+    /// <summary>
     /// Gets or sets a value indicating whether the launch sequence plays when the bot is started.
     /// </summary>
     /// <remarks>

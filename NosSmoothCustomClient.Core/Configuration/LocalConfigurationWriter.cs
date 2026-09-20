@@ -77,6 +77,7 @@ public static class LocalConfigurationWriter
                         p.WaitAfterMs
                     }),
                     options.AutoLaunchInstance,
+                    options.RecordRunKey,
                     StartupSequence = options.StartupSequence.Select(s => new
                     {
                         s.Name,

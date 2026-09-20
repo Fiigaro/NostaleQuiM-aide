@@ -94,6 +94,20 @@ public sealed class MainWindow : Window
     private readonly Button _clearLaunch = new() { Content = "Effacer", Width = 90, Height = 28 };
     private readonly TextBlock _launchStatus = new() { Name = "launchStatus", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly StackPanel _launchList = new() { Spacing = 2 };
+    private readonly TextBlock _launchHowTo = new()
+    {
+        Foreground = Ink,
+        FontSize = 11.5,
+        TextWrapping = TextWrapping.Wrap
+    };
+
+    private readonly ComboBox _recordKey = new()
+    {
+        Name = "recordKey",
+        Width = 150,
+        Height = 32,
+        VerticalAlignment = VerticalAlignment.Center
+    };
 
     private readonly CheckBox _autoLaunch = new()
     {
@@ -295,6 +309,23 @@ public sealed class MainWindow : Window
         _buildLaunch.Click += (_, _) => BuildLaunchFromRun();
         _launchNow.Click += (_, _) => LaunchNow();
         _clearLaunch.Click += (_, _) => { _options.StartupSequence.Clear(); MarkDirty(); RefreshLaunch(); };
+
+        foreach (var choice in HotKey.Choices)
+        {
+            _recordKey.Items.Add(choice.Label);
+        }
+
+        _recordKey.SelectedItem = HotKey.Resolve(_options.RecordRunKey).Label;
+        _recordKey.SelectionChanged += (_, _) =>
+        {
+            if (_recordKey.SelectedItem is string label && HotKey.TryParse(label, out var picked))
+            {
+                _options.RecordRunKey = picked.Label;
+                MarkDirty();
+                RefreshRun();
+                RefreshLaunch();
+            }
+        };
 
         _autoLaunch.IsChecked = _options.AutoLaunchInstance;
         _autoLaunch.IsCheckedChanged += (_, _) =>
@@ -659,7 +690,7 @@ public sealed class MainWindow : Window
             Spacing = 0,
             Children =
             {
-                Section("Enregistrer une run (F11)", BuildRunSection()),
+                Section("Enregistrer une run", BuildRunSection()),
                 Section("Journal", _logScroll)
             }
         }));
@@ -1153,6 +1184,9 @@ public sealed class MainWindow : Window
     {
         var panel = new StackPanel { Spacing = 10 };
 
+        panel.Children.Add(Field("Touche d'enregistrement", _recordKey,
+            "pressée dans le jeu ; elle doit être une touche dont le client ne fait rien"));
+
         panel.Children.Add(Note
         (
             "Joue la séquence à la main : chaque touche et chaque clic envoyés au jeu sont notés "
@@ -1185,7 +1219,7 @@ public sealed class MainWindow : Window
 
         if (!_runs.Available)
         {
-            _runToggle.Content = "F11 hors service";
+            _runToggle.Content = $"{_runs.Key} hors service";
             _runToggle.IsEnabled = false;
             _runStatus.Text = _runs.UnavailableReason ?? "fenêtre de jeu introuvable";
             _runStatus.Foreground = Blocked;
@@ -1195,7 +1229,7 @@ public sealed class MainWindow : Window
         var events = _runs.Events;
 
         _runToggle.IsEnabled = true;
-        _runToggle.Content = _runs.Recording ? "ENREGISTRE — cliquer pour arrêter" : "Démarrer l'enregistrement (F11)";
+        _runToggle.Content = _runs.Recording ? "ENREGISTRE — cliquer pour arrêter" : $"Démarrer l'enregistrement ({_runs.Key})";
         _runToggle.Foreground = _runs.Recording ? Blocked : Ink;
         _runSave.IsEnabled = events.Count > 0;
         _runClear.IsEnabled = events.Count > 0 && !_runs.Recording;
@@ -1453,14 +1487,7 @@ public sealed class MainWindow : Window
             + "ça s'enregistre une fois et ça se rejoue."
         ));
 
-        panel.Children.Add(Note
-        (
-            "Dans le jeu, F11 pour démarrer l'enregistrement, fais le lancement à la main "
-            + "(C, C, START, marche, Entrée), F11 pour arrêter, puis « Faire de ce run la "
-            + "séquence ». Chaque étape retient la carte ou l'endroit où tu étais : la relecture "
-            + "attend le chargement, elle ne compte pas les secondes.",
-            Ink
-        ));
+        panel.Children.Add(_launchHowTo);
 
         panel.Children.Add(_autoLaunch);
 
@@ -1489,7 +1516,7 @@ public sealed class MainWindow : Window
 
         if (_runs.Recording)
         {
-            _launchStatus.Text = "arrête l'enregistrement d'abord (F11)";
+            _launchStatus.Text = $"arrête l'enregistrement d'abord ({_runs.Key})";
             _launchStatus.Foreground = Blocked;
             return;
         }
@@ -1526,7 +1553,7 @@ public sealed class MainWindow : Window
 
         if (_options.StartupSequence.Count == 0)
         {
-            _launchStatus.Text = "aucune séquence : enregistre un run (F11) puis reprends-le";
+            _launchStatus.Text = $"aucune séquence : enregistre un run ({RecordKey}) puis reprends-le";
             _launchStatus.Foreground = Blocked;
             return;
         }
@@ -1544,8 +1571,19 @@ public sealed class MainWindow : Window
         RefreshLaunch();
     }
 
+    /// <summary>Gets the recording key as it currently reads, for every line that names it.</summary>
+    private string RecordKey => HotKey.Resolve(_options.RecordRunKey).Label;
+
     private void RefreshLaunch()
     {
+        // Named rather than spelled out: the key is a setting now, and a panel still saying F11
+        // after it was changed is worse than one that never named it.
+        _launchHowTo.Text =
+            $"Dans le jeu, {RecordKey} pour démarrer l'enregistrement, fais le lancement à la main "
+            + $"(C, C, START, marche, Entrée), {RecordKey} pour arrêter, puis « Faire de ce run la "
+            + "séquence ». Chaque étape retient la carte ou l'endroit où tu étais : la relecture "
+            + "attend le chargement, elle ne compte pas les secondes.";
+
         _clearLaunch.IsEnabled = _options.StartupSequence.Count > 0;
         _launchList.Children.Clear();
 
@@ -1559,7 +1597,7 @@ public sealed class MainWindow : Window
         {
             _launchList.Children.Add(new TextBlock
             {
-                Text = "  aucune séquence de lancement enregistrée (F11 puis « Faire de ce run la séquence »)",
+                Text = $"  aucune séquence de lancement enregistrée ({RecordKey} puis « Faire de ce run la séquence »)",
                 Foreground = Blocked,
                 FontSize = 11
             });

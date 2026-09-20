@@ -215,7 +215,7 @@ public static class BotReadiness
                 "Lancement",
                 false,
                 "lancement au démarrage demandé, mais aucune séquence enregistrée : "
-                + "enregistre un run (F11) et reprends-le"
+                + $"enregistre un run ({HotKey.Resolve(options.RecordRunKey)}) et reprends-le"
             )
             : new ReadinessItem("Lancement", true, $"{options.StartupSequence.Count} étape(s) au démarrage");
 

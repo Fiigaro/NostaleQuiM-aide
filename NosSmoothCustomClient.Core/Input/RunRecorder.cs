@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NosSmooth.Packets.Enums.Entities;
+using NosSmoothCustomClient.Configuration;
 using NosSmoothCustomClient.Diagnostics;
 using NosSmoothCustomClient.State;
 
@@ -24,13 +25,13 @@ namespace NosSmoothCustomClient.Input;
 /// </remarks>
 public sealed class RunRecorder : BackgroundService
 {
-    private const int VkF11 = 0x7A;
     private const int VkLButton = 0x01;
     private const int VkRButton = 0x02;
 
     private static readonly int[] WatchedKeys = BuildWatchedKeys();
 
     private readonly CaptureTarget _target;
+    private readonly BotOptions _options;
     private readonly ProtocolStateManager _state;
     private readonly RunJournal _journal;
     private readonly ILogger<RunRecorder> _logger;
@@ -52,9 +53,17 @@ public sealed class RunRecorder : BackgroundService
     /// <param name="target">The captured game process.</param>
     /// <param name="state">The state manager.</param>
     /// <param name="logger">The logger.</param>
-    public RunRecorder(CaptureTarget target, ProtocolStateManager state, RunJournal journal, ILogger<RunRecorder> logger)
+    public RunRecorder
+    (
+        CaptureTarget target,
+        BotOptions options,
+        ProtocolStateManager state,
+        RunJournal journal,
+        ILogger<RunRecorder> logger
+    )
     {
         _target = target;
+        _options = options;
         _state = state;
         _journal = journal;
         _logger = logger;
@@ -68,6 +77,9 @@ public sealed class RunRecorder : BackgroundService
 
     /// <summary>Gets the reason recording is unavailable, when it is.</summary>
     public string? UnavailableReason { get; private set; }
+
+    /// <summary>Gets the key that starts and stops recording, as it reads.</summary>
+    public string Key => HotKey.Resolve(_options.RecordRunKey).Label;
 
     /// <summary>Gets a value indicating whether a run is being recorded right now.</summary>
     public bool Recording => _recording;
@@ -115,7 +127,8 @@ public sealed class RunRecorder : BackgroundService
         _logger.LogInformation
         (
             "Run recording started. Play the run by hand; every key and click you send to the game " +
-            "is recorded with what the server reported at that moment. F11 stops it."
+            "is recorded with what the server reported at that moment. {Key} stops it.",
+            Key
         );
 
         Changed?.Invoke();
@@ -198,25 +211,28 @@ public sealed class RunRecorder : BackgroundService
 
         _logger.LogInformation
         (
-            "Run recorder ready on window 0x{Handle:X} (\"{Class}\"). Press F11 to start and stop.",
+            "Run recorder ready on window 0x{Handle:X} (\"{Class}\"). Press {Key} to start and stop.",
             window.ToInt64(),
-            className
+            className,
+            Key
         );
 
         var down = new Dictionary<int, bool>();
-        var f11Was = false;
+        var toggleWas = false;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var f11 = IsDown(VkF11);
-                if (f11 && !f11Was)
+                // Read every pass rather than once at startup: the key is a setting, and one
+                // changed because it collided with the game has to take effect there and then.
+                var toggle = IsDown(HotKey.Resolve(_options.RecordRunKey).VirtualKey);
+                if (toggle && !toggleWas)
                 {
                     Toggle();
                 }
 
-                f11Was = f11;
+                toggleWas = toggle;
 
                 if (_recording)
                 {
