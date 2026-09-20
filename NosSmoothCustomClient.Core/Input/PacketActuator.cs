@@ -62,6 +62,13 @@ public sealed class PacketActuator : IBotActuator
     public bool WalkIsSustained => false;
 
     /// <inheritdoc />
+    public Task<bool> ClickSequenceAsync(IReadOnlyList<UiPoint> points, CancellationToken ct = default)
+    {
+        // There is no interface to click at from here; a packet client sees no panels.
+        return Task.FromResult(false);
+    }
+
+    /// <inheritdoc />
     public bool TryAnotherWayToMove(out string what)
     {
         // A walk packet the server accepted is a walk that happened; there is no second way.

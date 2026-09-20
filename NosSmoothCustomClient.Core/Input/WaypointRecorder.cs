@@ -24,6 +24,8 @@ public sealed class WaypointRecorder : BackgroundService
 {
     private const int VkF9 = 0x78;
     private const int VkF10 = 0x79;
+    private const int VkF7 = 0x76;
+    private const int VkF8 = 0x77;
 
     private readonly CaptureTarget _target;
     private readonly ProtocolStateManager _state;
@@ -217,6 +219,8 @@ public sealed class WaypointRecorder : BackgroundService
 
         var f9WasDown = false;
         var f10WasDown = false;
+        var f7WasDown = false;
+        var f8WasDown = false;
 
         try
         {
@@ -252,6 +256,38 @@ public sealed class WaypointRecorder : BackgroundService
                     }
                 }
 
+                // F7 and F8 record where to click in the interface rather than on the map: the
+                // reward panel has no coordinates to pair a point with.
+                var f7 = IsDown(VkF7);
+                var f8 = IsDown(VkF8);
+
+                if (f7 && !f7WasDown)
+                {
+                    if (_armed)
+                    {
+                        CaptureInterface(window, doubleClick: true);
+                    }
+                    else
+                    {
+                        WarnDisarmed("F7");
+                    }
+                }
+
+                if (f8 && !f8WasDown)
+                {
+                    if (_armed)
+                    {
+                        CaptureInterface(window, doubleClick: false);
+                    }
+                    else
+                    {
+                        WarnDisarmed("F8");
+                    }
+                }
+
+                f7WasDown = f7;
+                f8WasDown = f8;
+
                 f9WasDown = f9;
                 f10WasDown = f10;
 
@@ -266,6 +302,42 @@ public sealed class WaypointRecorder : BackgroundService
                 Finish();
             }
         }
+    }
+
+    /// <summary>
+    /// Records a place to click in the interface, which has no map coordinates to go with it.
+    /// </summary>
+    /// <param name="clickX">X inside the game window.</param>
+    /// <param name="clickY">Y inside the game window.</param>
+    /// <param name="doubleClick">Whether the control takes two clicks.</param>
+    /// <remarks>
+    /// A panel is drawn over the window rather than placed in the world, so there is nothing to
+    /// pair it with and nothing the server will ever say about it. Recorded by hand is the only
+    /// way it can be known at all.
+    /// </remarks>
+    public void CaptureUiPoint(int clickX, int clickY, bool doubleClick)
+    {
+        var name = $"point {_options.RewardSequence.Count + 1}";
+        _options.RewardSequence.Add(new UiPoint(name, clickX, clickY, doubleClick));
+
+        _logger.LogInformation
+        (
+            "Interface point recorded: {Name} at ({X},{Y}){Kind}.",
+            name,
+            clickX,
+            clickY,
+            doubleClick ? ", double-clic" : string.Empty
+        );
+
+        Changed?.Invoke();
+    }
+
+    /// <summary>Forgets the recorded interface points.</summary>
+    public void ClearUiPoints()
+    {
+        _options.RewardSequence = new List<UiPoint>();
+        _logger.LogInformation("Interface points cleared.");
+        Changed?.Invoke();
     }
 
     /// <summary>
@@ -356,34 +428,62 @@ public sealed class WaypointRecorder : BackgroundService
         }
     }
 
+    private void CaptureInterface(IntPtr window, bool doubleClick)
+    {
+        if (TryReadCursor(window, out var x, out var y))
+        {
+            CaptureUiPoint(x, y, doubleClick);
+        }
+    }
+
     private void Capture(IntPtr window)
     {
+        if (TryReadCursor(window, out var x, out var y))
+        {
+            Capture(x, y);
+        }
+    }
+
+    /// <summary>
+    /// Reads where the mouse is inside the game window.
+    /// </summary>
+    /// <remarks>
+    /// Shared by both kinds of recording. A point on the minimap and a point on a panel are read
+    /// exactly the same way; only what is done with them afterwards differs.
+    /// </remarks>
+    private bool TryReadCursor(IntPtr window, out int x, out int y)
+    {
+        x = 0;
+        y = 0;
+
         if (!GetCursorPos(out var cursor))
         {
             _logger.LogWarning("Could not read the mouse position; nothing recorded.");
-            return;
+            return false;
         }
 
         var point = cursor;
         if (!ScreenToClient(window, ref point))
         {
             _logger.LogWarning("Could not translate the mouse into the game window; nothing recorded.");
-            return;
+            return false;
         }
 
         if (!GetClientRect(window, out var rect) || point.X < 0 || point.Y < 0 || point.X > rect.Right || point.Y > rect.Bottom)
         {
             _logger.LogWarning
             (
-                "The mouse is outside the game window ({X},{Y}); point at the minimap inside NosTale.",
+                "The mouse is outside the game window ({X},{Y}); point inside NosTale.",
                 point.X,
                 point.Y
             );
 
-            return;
+            return false;
         }
 
-        Capture(point.X, point.Y);
+        x = point.X;
+        y = point.Y;
+        return true;
     }
 
     private void Finish()

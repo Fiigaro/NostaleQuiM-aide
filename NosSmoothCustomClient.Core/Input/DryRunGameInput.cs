@@ -38,6 +38,13 @@ public sealed class DryRunGameInput : IGameInput
     }
 
     /// <inheritdoc />
+    public bool DoubleClickAt(int x, int y)
+    {
+        _logger.LogInformation("[WOULD DOUBLE-CLICK] ({X},{Y})", x, y);
+        return true;
+    }
+
+    /// <inheritdoc />
     public bool ClickAt(int x, int y)
     {
         _logger.LogInformation("[WOULD CLICK] ({X},{Y}) in the game window", x, y);

@@ -34,6 +34,14 @@ public interface IGameInput
     /// <param name="y">Y offset inside the window.</param>
     /// <returns>True when the input was accepted for delivery.</returns>
     bool ClickAt(int x, int y);
+
+    /// <summary>
+    /// Clicks twice in quick succession, for a control that only answers to that.
+    /// </summary>
+    /// <param name="x">X inside the game window.</param>
+    /// <param name="y">Y inside the game window.</param>
+    /// <returns>True when both clicks were sent.</returns>
+    bool DoubleClickAt(int x, int y);
 }
 
 /// <summary>

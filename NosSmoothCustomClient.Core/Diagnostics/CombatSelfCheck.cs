@@ -61,7 +61,8 @@ public static class CombatSelfCheck
             TheMinimapIsMeasuredFromTheRoute(),
             await TheExitIsNotAStopOnTheRoundAsync().ConfigureAwait(false),
             await DistantMonstersAreWalkedToAsync().ConfigureAwait(false),
-            await TheRoundIsWalkedInOrderAsync().ConfigureAwait(false)
+            await TheRoundIsWalkedInOrderAsync().ConfigureAwait(false),
+            await TheRewardIsTakenOnceAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -451,6 +452,46 @@ public static class CombatSelfCheck
         return ("la tournée passe par tous les points, dans l'ordre", wentEverywhere && keptTheExit && inOrder);
     }
 
+    private static async Task<(string, bool)> TheRewardIsTakenOnceAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.RewardDelay = TimeSpan.FromMilliseconds(80);
+        options.RewardSequence = new List<UiPoint>
+        {
+            new("tirage", 467, 460, DoubleClick: true, WaitAfterMs: 0),
+            new("confirmer", 509, 571, WaitAfterMs: 0)
+        };
+
+        state.MarkRoomCleared();
+        state.UpdatePosition(14, 1);
+
+        // Standing on the way out with the room done. The panel is drawn over the window and no
+        // packet mentions it, so the sequence waits for it to have had time to appear.
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var waited = !actuator.Calls.Any(c => c.StartsWith("ui:", StringComparison.Ordinal));
+
+        await Task.Delay(120).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var played = actuator.Calls.Contains("ui:tirage") && actuator.Calls.Contains("ui:confirmer");
+
+        // And only once: a second run would click into whatever is on screen by then.
+        actuator.Calls.Clear();
+        await Task.Delay(120).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var onlyOnce = !actuator.Calls.Any(c => c.StartsWith("ui:", StringComparison.Ordinal));
+
+        // The next room is a new run of the same sequence.
+        state.EnterMap(4104);
+        state.MarkRoomCleared();
+        state.UpdatePosition(14, 1);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await Task.Delay(120).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var armedAgain = actuator.Calls.Contains("ui:tirage");
+
+        return ("la récompense est prise une fois par salle", waited && played && onlyOnce && armedAgain);
+    }
+
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()
     {
         var options = new BotOptions { Waypoints = new List<Waypoint>() };
@@ -795,6 +836,16 @@ public static class CombatSelfCheck
         public bool SelectsTargetItself { get; }
 
         public bool WalkIsSustained => SelectsTargetItself;
+
+        public Task<bool> ClickSequenceAsync(IReadOnlyList<UiPoint> points, CancellationToken ct = default)
+        {
+            foreach (var point in points)
+            {
+                Calls.Add("ui:" + point.Name);
+            }
+
+            return Task.FromResult(true);
+        }
 
         public bool TryAnotherWayToMove(out string what)
         {

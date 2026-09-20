@@ -77,6 +77,12 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets which waypoint is the way out of the room.</summary>
     public int? ExitWaypoint { get; set; }
 
+    /// <summary>Gets or sets the clicks that collect the reward, in order.</summary>
+    public List<UiPointEntry>? RewardSequence { get; set; }
+
+    /// <summary>Gets or sets how long to wait for the reward panel to appear.</summary>
+    public double? RewardDelaySeconds { get; set; }
+
     /// <summary>Gets or sets the attack rotation, in priority order.</summary>
     public List<SkillEntry>? Skills { get; set; }
 
@@ -90,6 +96,25 @@ public sealed class BotConfigurationFile
     public KeyBindings? Keys { get; set; }
 
     /// <summary>One waypoint.</summary>
+    /// <summary>One recorded place to click in the game's interface.</summary>
+    public sealed class UiPointEntry
+    {
+        /// <summary>Gets or sets what it is.</summary>
+        public string? Name { get; set; }
+
+        /// <summary>Gets or sets X inside the game window.</summary>
+        public int X { get; set; }
+
+        /// <summary>Gets or sets Y inside the game window.</summary>
+        public int Y { get; set; }
+
+        /// <summary>Gets or sets whether it takes two clicks.</summary>
+        public bool DoubleClick { get; set; }
+
+        /// <summary>Gets or sets how long to wait afterwards.</summary>
+        public int WaitAfterMs { get; set; } = 800;
+    }
+
     public sealed class WaypointEntry
     {
         /// <summary>Gets or sets the X coordinate.</summary>
@@ -194,6 +219,16 @@ public sealed class BotConfigurationFile
         Set(file.RouteMapId, v => options.RouteMapId = v, "RouteMapId", applied);
         Set(file.InstanceMode, v => options.InstanceMode = v, "InstanceMode", applied);
         Set(file.ExitWaypoint, v => options.ExitWaypoint = v, "ExitWaypoint", applied);
+        Set(file.RewardDelaySeconds, v => options.RewardDelay = TimeSpan.FromSeconds(v), "RewardDelay", applied);
+
+        if (file.RewardSequence is { Count: > 0 } sequence)
+        {
+            options.RewardSequence = sequence
+                .Select(p => new UiPoint(p.Name ?? "point", p.X, p.Y, p.DoubleClick, p.WaitAfterMs))
+                .ToList();
+
+            applied.Add("RewardSequence");
+        }
 
         if (Enum.TryParse<MinimapClickMode>(file.MinimapClickMode, true, out var clickMode))
         {

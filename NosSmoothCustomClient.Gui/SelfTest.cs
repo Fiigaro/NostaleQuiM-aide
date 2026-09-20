@@ -219,6 +219,10 @@ public static class SelfTest
             // pour désigner le portail - ce qui est exactement ce qu'on cherche à éviter.
             ("mode instance reglable", texts.Any(t => t.Contains("sortie = waypoint")) && instanceToggles),
 
+            // Les clics de récompense n'ont aucune trace dans les paquets : s'ils ne sont pas
+            // listés dans la fenêtre, rien ne dit qu'ils existent ni ce qu'ils vont faire.
+            ("clics de recompense listes", texts.Any(t => t.Contains("F7")) && RewardSequenceReadsBack()),
+
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.
             ("effacer vide la route en cours", clearWorks),
@@ -241,6 +245,31 @@ public static class SelfTest
         Console.WriteLine($"{checks.Length - failed}/{checks.Length} verifications passees, {visuals.Count} controles dans l'arbre visuel.");
 
         return failed == 0 ? 0 : 3;
+    }
+
+    private static bool RewardSequenceReadsBack()
+    {
+        var options = new BotOptions
+        {
+            RewardSequence = new List<UiPoint>
+            {
+                new("tirage", 467, 460, DoubleClick: true),
+                new("confirmer", 509, 571)
+            }
+        };
+
+        // It has to survive the round trip, or a sequence recorded once is gone at the next launch.
+        var (path, _) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
+        if (path is null)
+        {
+            return false;
+        }
+
+        var json = File.ReadAllText(path);
+        File.Delete(path);
+
+        return json.Contains("\"tirage\"") && json.Contains("\"DoubleClick\": true")
+               && options.RewardSequence[0].ToString().Contains("double-clic");
     }
 
     private static bool RunEventReadsBack()

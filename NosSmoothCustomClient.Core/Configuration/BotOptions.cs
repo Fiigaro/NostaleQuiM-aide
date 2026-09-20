@@ -175,6 +175,20 @@ public sealed class BotOptions
     public TimeSpan RepositionAfter { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
+    /// Gets or sets the clicks that collect the reward and close the instance, in order.
+    /// </summary>
+    /// <remarks>
+    /// Recorded rather than written down, because a panel's position is a property of the window it
+    /// is drawn in. Played once per room, after the way out has been reached.
+    /// </remarks>
+    public IList<UiPoint> RewardSequence { get; set; } = new List<UiPoint>();
+
+    /// <summary>
+    /// Gets or sets how long to wait after reaching the exit before the reward panel is expected.
+    /// </summary>
+    public TimeSpan RewardDelay { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
     /// Gets or sets a value indicating whether the bot leaves its round to chase a known monster.
     /// </summary>
     /// <remarks>

@@ -38,6 +38,11 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private DateTimeOffset _nextRefusalWarning = DateTimeOffset.MinValue;
     private int _stalls;
 
+    // Once per room. Cleared on the next map, since that is a new run of the same sequence.
+    private bool _rewardTaken;
+    private DateTimeOffset? _rewardDueAt;
+    private int _rewardMap = int.MinValue;
+
     // A destination that is not a waypoint, so the journey bookkeeping can tell it from one.
     private const int MonsterDestination = -2;
 
@@ -120,6 +125,14 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     /// </remarks>
     public async Task TickAsync(CancellationToken ct)
     {
+        // A new map is a new room, and the reward panel that belongs to the last one is gone.
+        if (_rewardMap != _state.CurrentMapId)
+        {
+            _rewardMap = _state.CurrentMapId;
+            _rewardTaken = false;
+            _rewardDueAt = null;
+        }
+
         if (!_controller.IsRunning)
         {
             // Paused: the packet pipeline keeps running, so the loop resumes on fresh state.
@@ -665,6 +678,47 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     }
 
     /// <summary>
+    /// Plays the recorded clicks that take the reward and close the instance.
+    /// </summary>
+    /// <remarks>
+    /// Blind, and unavoidably so: the panel is drawn over the window and no packet mentions it. So
+    /// the sequence waits for the panel to have had time to appear, plays once, and is judged by
+    /// what follows - the items arriving, and the map changing back. Once per room, because a second
+    /// run would click into whatever is on screen by then.
+    /// </remarks>
+    private async Task CollectTheRewardAsync(CancellationToken ct)
+    {
+        if (_options.RewardSequence.Count == 0)
+        {
+            Decide(4, "instance : salle terminée, sur la sortie - aucun clic de récompense enregistré");
+            return;
+        }
+
+        if (_rewardTaken)
+        {
+            Decide(4, "instance : récompense déjà prise, en attente de la sortie");
+            return;
+        }
+
+        if (_rewardDueAt is null)
+        {
+            _rewardDueAt = DateTimeOffset.UtcNow + _options.RewardDelay;
+            Decide(4, "instance : sur la sortie, on laisse {0:0.#}s au panneau pour s'afficher", _options.RewardDelay.TotalSeconds);
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow < _rewardDueAt)
+        {
+            return;
+        }
+
+        _rewardTaken = true;
+        Decide(4, "instance : récompense - {0} clic(s) enregistré(s)", _options.RewardSequence.Count);
+
+        await _actuator.ClickSequenceAsync(_options.RewardSequence.ToArray(), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Walks towards the nearest monster the attack key is not reaching.
     /// </summary>
     /// <returns>True when a monster was headed for.</returns>
@@ -734,7 +788,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
         if (_state.HasPosition && distance <= _options.WaypointArrivalRadius)
         {
-            Decide(4, "instance : salle terminée, sur la sortie {0} - en attente du portail", exit);
+            await CollectTheRewardAsync(ct).ConfigureAwait(false);
             return;
         }
 

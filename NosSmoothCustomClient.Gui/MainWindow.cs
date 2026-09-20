@@ -84,6 +84,8 @@ public sealed class MainWindow : Window
     private (IntPtr Handle, string ClassName)? _lastProbed;
 
     private readonly Button _adoptMap = new() { Width = 260, Height = 28 };
+    private readonly Button _clearReward = new() { Content = "Effacer les clics", Width = 150, Height = 28 };
+    private readonly StackPanel _rewardList = new() { Spacing = 2 };
 
     private readonly CheckBox _instanceMode = new()
     {
@@ -257,6 +259,7 @@ public sealed class MainWindow : Window
         _useProbed.Click += (_, _) => UseProbedWindow();
 
         _adoptMap.Click += (_, _) => AdoptCurrentMap();
+        _clearReward.Click += (_, _) => { _recorder?.ClearUiPoints(); RefreshRoute(); };
 
         _instanceMode.IsChecked = _options.InstanceMode;
         _instanceMode.IsCheckedChanged += (_, _) =>
@@ -1224,6 +1227,19 @@ public sealed class MainWindow : Window
 
         panel.Children.Add(_routeList);
 
+        panel.Children.Add(Note
+        (
+            "Fin de salle : le panneau de récompense n'est annoncé par aucun paquet, donc ses clics "
+            + "s'enregistrent à la main. Arme F9, puis vise dans le jeu et presse F7 pour un "
+            + "double-clic (la case à tirer) ou F8 pour un clic simple (Confirm). Ils sont rejoués "
+            + "dans l'ordre une fois la sortie atteinte."
+        ));
+
+        var rewardActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        rewardActions.Children.Add(_clearReward);
+        panel.Children.Add(rewardActions);
+        panel.Children.Add(_rewardList);
+
         if (_recorder is null)
         {
             _arm.IsEnabled = false;
@@ -1475,6 +1491,32 @@ public sealed class MainWindow : Window
         _adoptMap.Content = _options.RouteMapId == map && map >= 0
             ? $"Route déclarée sur cette carte ({map})"
             : $"Déclarer la route sur la carte courante ({(map < 0 ? "?" : map.ToString())})";
+
+        _rewardList.Children.Clear();
+        _clearReward.IsEnabled = _recorder is not null && _options.RewardSequence.Count > 0;
+
+        if (_options.RewardSequence.Count == 0)
+        {
+            _rewardList.Children.Add(new TextBlock
+            {
+                Text = "  aucun clic de récompense enregistré (F7 / F8)",
+                Foreground = Blocked,
+                FontSize = 11
+            });
+        }
+        else
+        {
+            for (var i = 0; i < _options.RewardSequence.Count; i++)
+            {
+                _rewardList.Children.Add(new TextBlock
+                {
+                    Text = $"  {i + 1}.  {_options.RewardSequence[i]}",
+                    Foreground = Ink,
+                    FontSize = 11,
+                    FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace")
+                });
+            }
+        }
 
         var route = _recorder?.Recorded ?? Array.Empty<Waypoint>();
         var shown = route.Count > 0 ? route : _options.Waypoints.ToArray();

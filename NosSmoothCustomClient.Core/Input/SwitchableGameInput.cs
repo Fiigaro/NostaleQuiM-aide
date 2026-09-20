@@ -210,6 +210,10 @@ public sealed class SwitchableGameInput : IGameInput
     public bool ClickAt(int x, int y)
         => Current.ClickAt(x, y);
 
+    /// <inheritdoc />
+    public bool DoubleClickAt(int x, int y)
+        => Current.DoubleClickAt(x, y);
+
     private IGameInput Current
         => _liveMode ? _live : _dryRun;
 }

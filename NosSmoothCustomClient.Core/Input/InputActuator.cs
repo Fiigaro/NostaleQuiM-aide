@@ -167,6 +167,35 @@ public sealed class InputActuator : IBotActuator
     }
 
     /// <inheritdoc />
+    public async Task<bool> ClickSequenceAsync(IReadOnlyList<UiPoint> points, CancellationToken ct = default)
+    {
+        var all = true;
+
+        foreach (var point in points)
+        {
+            _logger.LogInformation("Interface: {Point}.", point);
+
+            var sent = await PacedAsync
+            (
+                () => point.DoubleClick ? _input.DoubleClickAt(point.X, point.Y) : _input.ClickAt(point.X, point.Y),
+                point.ToString(),
+                ct
+            ).ConfigureAwait(false);
+
+            all &= sent;
+
+            // The client has to be given time to draw what the click asked for: the next point is
+            // on a panel that does not exist until this one has been answered.
+            if (point.WaitAfterMs > 0)
+            {
+                await Task.Delay(point.WaitAfterMs, ct).ConfigureAwait(false);
+            }
+        }
+
+        return all;
+    }
+
+    /// <inheritdoc />
     public Task<bool> LootAsync(CancellationToken ct = default)
         => PressAsync(_options.Keys.Loot, "loot", ct);
 

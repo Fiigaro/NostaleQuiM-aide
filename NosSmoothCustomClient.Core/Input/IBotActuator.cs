@@ -59,6 +59,18 @@ public interface IBotActuator
     /// </remarks>
     bool TryAnotherWayToMove(out string what);
 
+    /// <summary>
+    /// Plays a recorded run of interface clicks, in order.
+    /// </summary>
+    /// <param name="points">The points to click.</param>
+    /// <param name="ct">The cancellation token.</param>
+    /// <returns>True when every point was clicked.</returns>
+    /// <remarks>
+    /// The one part of a sequence the server never announces. A reward panel is drawn over the
+    /// window and mentioned by nothing, so these are played blind and judged by what follows.
+    /// </remarks>
+    Task<bool> ClickSequenceAsync(IReadOnlyList<UiPoint> points, CancellationToken ct = default);
+
     /// <summary>Takes one step towards a cell.</summary>
     /// <param name="x">Destination X.</param>
     /// <param name="y">Destination Y.</param>

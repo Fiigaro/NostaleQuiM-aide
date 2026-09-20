@@ -66,7 +66,16 @@ public static class LocalConfigurationWriter
 
                     // The route's click points only mean anything on the minimap they were recorded
                     // against, so the map travels with them.
-                    options.RouteMapId
+                    options.RouteMapId,
+                    RewardDelaySeconds = Math.Round(options.RewardDelay.TotalSeconds, 1),
+                    RewardSequence = options.RewardSequence.Select(p => new
+                    {
+                        p.Name,
+                        p.X,
+                        p.Y,
+                        p.DoubleClick,
+                        p.WaitAfterMs
+                    })
                 }
             };
 

@@ -165,6 +165,23 @@ public sealed class WindowsGameInput : IGameInput
     public bool ClickAt(int x, int y)
         => ClickMode == MinimapClickMode.RealCursor ? ClickWithCursor(x, y) : PostClick(x, y);
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Two ordinary clicks rather than WM_LBUTTONDBLCLK: the real-cursor path has no message to
+    /// send, and a client that works out a double click from the gap between two of them treats
+    /// both paths the same. The gap is what matters, so nothing is paced in between.
+    /// </remarks>
+    public bool DoubleClickAt(int x, int y)
+    {
+        if (!ClickAt(x, y))
+        {
+            return false;
+        }
+
+        Thread.Sleep(60);
+        return ClickAt(x, y);
+    }
+
     /// <summary>
     /// Posts a click as window messages, leaving the real mouse alone.
     /// </summary>
