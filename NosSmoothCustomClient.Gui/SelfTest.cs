@@ -153,6 +153,27 @@ public static class SelfTest
             rewardPlaysOnDemand = silentBefore && !string.IsNullOrWhiteSpace(rewardStatus.Text);
         }
 
+        // Les deux boutons d'enregistrement, dans les deux endroits où on en a besoin.
+        var buttons = visuals.OfType<Button>().ToList();
+        var starts = buttons.Where(b => b.Name is "runStart" or "launchRecStart").ToList();
+        var stops = buttons.Where(b => b.Name is "runStop" or "launchRecStop").ToList();
+
+        var recordingButtons = starts.Count == 2
+                               && stops.Count == 2
+                               && starts.All(b => (b.Content as string)?.Contains("Commencer") == true)
+                               && stops.All(b => (b.Content as string)?.Contains("Finir") == true);
+
+        if (recordingButtons)
+        {
+            // Sans enregistreur, presser « Commencer » ne peut rien faire : il doit le dire.
+            var status = visuals.OfType<TextBlock>().ToList();
+            var before = status.Select(s => s.Text).ToList();
+            Click(starts[0]);
+
+            recordingButtons = status.Zip(before).Any(pair => pair.First.Text != pair.Second)
+                               || starts.All(b => !b.IsEnabled);
+        }
+
         // La touche d'enregistrement doit atteindre les options, et les textes doivent la suivre.
         var recordKeyEdits = false;
         if (visuals.OfType<ComboBox>().FirstOrDefault(c => c.Name == "recordKey") is { } keyBox)
@@ -331,6 +352,11 @@ public static class SelfTest
             // capture démarrait derrière une fenêtre. Elle se change donc ici, et tout ce qui la
             // nomme doit suivre - un panneau qui dit encore F11 après coup est pire que rien.
             ("touche d'enregistrement reglable", recordKeyEdits),
+
+            // Deux boutons nommés plutôt qu'un bouton qui change de sens, et une paire là où un
+            // lancement s'enregistre : un bouton dans un autre onglet est un bouton absent. Sans
+            // enregistreur ils sont éteints, et le panneau dit pourquoi - jamais muets.
+            ("boutons commencer et finir presents", recordingButtons),
             ("le bouton de lancement repond toujours", launchAnswers),
 
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon

@@ -189,7 +189,10 @@ public sealed class MainWindow : Window
     private readonly Button _saveRoute = new() { Content = "Enregistrer la route", Width = 170, Height = 28 };
     private readonly StackPanel _routeList = new() { Spacing = 3 };
     private readonly StackPanel _readiness = new() { Spacing = 3 };
-    private readonly Button _runToggle = new() { Width = 210, Height = 28 };
+    private readonly Button _runStart = new() { Name = "runStart", Content = "Commencer l'enregistrement", Width = 230, Height = 30 };
+    private readonly Button _runStop = new() { Name = "runStop", Content = "Finir l'enregistrement", Width = 200, Height = 30, IsEnabled = false };
+    private readonly Button _launchRecStart = new() { Name = "launchRecStart", Content = "Commencer l'enregistrement", Width = 230, Height = 30 };
+    private readonly Button _launchRecStop = new() { Name = "launchRecStop", Content = "Finir l'enregistrement", Width = 200, Height = 30, IsEnabled = false };
     private readonly Button _runSave = new() { Content = "Enregistrer le fichier", Width = 180, Height = 28 };
     private readonly Button _runClear = new() { Content = "Effacer", Width = 90, Height = 28 };
     private readonly TextBlock _runStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
@@ -300,7 +303,10 @@ public sealed class MainWindow : Window
         _clearRoute.Click += (_, _) => ClearRoute();
         _testClick.Click += (_, _) => TestClick();
         _probeClick.Click += (_, _) => ProbeClick();
-        _runToggle.Click += (_, _) => { _runs?.Toggle(); RefreshRun(); };
+        _runStart.Click += (_, _) => StartRecording();
+        _runStop.Click += (_, _) => StopRecording();
+        _launchRecStart.Click += (_, _) => StartRecording();
+        _launchRecStop.Click += (_, _) => StopRecording();
         _runClear.Click += (_, _) => { _runs?.Clear(); RefreshRun(); };
         _runSave.Click += (_, _) => SaveRun();
 
@@ -1200,8 +1206,9 @@ public sealed class MainWindow : Window
         (
             "Toutes les touches de la liste sont surveillées, pas seulement celle choisie : appuie "
             + "sur l'une d'elles dans le jeu et la ligne ci-dessus le dit. Si rien ne s'affiche, la "
-            + "touche est interceptée avant d'arriver ici — prends-en une autre. Le bouton "
-            + "ci-dessous, lui, marche toujours : clique dessus puis retourne dans le jeu."
+            + "touche est interceptée avant d'arriver ici — prends-en une autre, ou ignore-la : "
+            + "les deux boutons ci-dessous font le même travail et marchent toujours. Clique sur "
+            + "« Commencer », retourne dans le jeu, joue, reviens cliquer sur « Finir »."
         ));
 
         panel.Children.Add(Note
@@ -1212,7 +1219,8 @@ public sealed class MainWindow : Window
         ));
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        actions.Children.Add(_runToggle);
+        actions.Children.Add(_runStart);
+        actions.Children.Add(_runStop);
         actions.Children.Add(_runSave);
         actions.Children.Add(_runClear);
         actions.Children.Add(_runStatus);
@@ -1226,8 +1234,7 @@ public sealed class MainWindow : Window
     {
         if (_runs is null)
         {
-            _runToggle.Content = "Indisponible";
-            _runToggle.IsEnabled = false;
+            SetRecordingButtons(false, false, "Commencer l'enregistrement");
             _runSave.IsEnabled = false;
             _runClear.IsEnabled = false;
             _runStatus.Text = "disponible en mode capture (--pcap)";
@@ -1248,8 +1255,7 @@ public sealed class MainWindow : Window
 
         if (!_runs.Available)
         {
-            _runToggle.Content = $"{_runs.Key} hors service";
-            _runToggle.IsEnabled = false;
+            SetRecordingButtons(false, false, "Enregistrement hors service");
             _runStatus.Text = _runs.UnavailableReason ?? "fenêtre de jeu introuvable";
             _runStatus.Foreground = Blocked;
             return;
@@ -1257,9 +1263,15 @@ public sealed class MainWindow : Window
 
         var events = _runs.Events;
 
-        _runToggle.IsEnabled = true;
-        _runToggle.Content = _runs.Recording ? "ENREGISTRE — cliquer pour arrêter" : $"Démarrer l'enregistrement ({_runs.Key})";
-        _runToggle.Foreground = _runs.Recording ? Blocked : Ink;
+        SetRecordingButtons
+        (
+            !_runs.Recording,
+            _runs.Recording,
+            _runs.Recording
+                ? $"ENREGISTRE — {events.Count} évènement(s)"
+                : $"Commencer l'enregistrement (ou {_runs.Key} dans le jeu)"
+        );
+
         _runSave.IsEnabled = events.Count > 0;
         _runClear.IsEnabled = events.Count > 0 && !_runs.Recording;
 
@@ -1283,6 +1295,62 @@ public sealed class MainWindow : Window
                 FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace")
             });
         }
+    }
+
+    /// <summary>
+    /// Starts recording, from either of the two places it is offered.
+    /// </summary>
+    /// <remarks>
+    /// Two buttons rather than one that changes meaning. A toggle labelled by its own state is a
+    /// button you have to read before you dare press it, and the one thing worse than that is
+    /// pressing it by mistake and losing a run that took a full instance to play.
+    /// </remarks>
+    private void StartRecording()
+    {
+        if (_runs is null)
+        {
+            _runStatus.Text = "disponible en mode capture (--pcap)";
+            _runStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (!_runs.Recording)
+        {
+            _runs.Toggle();
+        }
+
+        RefreshRun();
+    }
+
+    private void StopRecording()
+    {
+        if (_runs is null)
+        {
+            _runStatus.Text = "disponible en mode capture (--pcap)";
+            _runStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (_runs.Recording)
+        {
+            _runs.Toggle();
+        }
+
+        RefreshRun();
+    }
+
+    private void SetRecordingButtons(bool canStart, bool canStop, string startLabel)
+    {
+        _runStart.IsEnabled = canStart;
+        _launchRecStart.IsEnabled = canStart;
+        _runStop.IsEnabled = canStop;
+        _launchRecStop.IsEnabled = canStop;
+
+        _runStart.Content = startLabel;
+        _launchRecStart.Content = startLabel;
+
+        _runStart.Foreground = canStop ? Blocked : Ink;
+        _launchRecStart.Foreground = canStop ? Blocked : Ink;
     }
 
     private void SaveRun()
@@ -1520,6 +1588,11 @@ public sealed class MainWindow : Window
 
         panel.Children.Add(_autoLaunch);
 
+        var recording = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        recording.Children.Add(_launchRecStart);
+        recording.Children.Add(_launchRecStop);
+        panel.Children.Add(recording);
+
         var launchActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         launchActions.Children.Add(_buildLaunch);
         launchActions.Children.Add(_launchNow);
@@ -1608,10 +1681,11 @@ public sealed class MainWindow : Window
         // Named rather than spelled out: the key is a setting now, and a panel still saying F11
         // after it was changed is worse than one that never named it.
         _launchHowTo.Text =
-            $"Dans le jeu, {RecordKey} pour démarrer l'enregistrement, fais le lancement à la main "
-            + $"(C, C, START, marche, Entrée), {RecordKey} pour arrêter, puis « Faire de ce run la "
-            + "séquence ». Chaque étape retient la carte ou l'endroit où tu étais : la relecture "
-            + "attend le chargement, elle ne compte pas les secondes.";
+            "« Commencer l'enregistrement », puis fais le lancement à la main dans le jeu "
+            + "(C, C, START, marche, Entrée), reviens sur « Finir l'enregistrement », et enfin "
+            + $"« Faire de ce run la séquence ». La touche {RecordKey} fait la même chose depuis le "
+            + "jeu si elle passe. Chaque étape retient la carte ou l'endroit où tu étais : la "
+            + "relecture attend le chargement, elle ne compte pas les secondes.";
 
         _clearLaunch.IsEnabled = _options.StartupSequence.Count > 0;
         _launchList.Children.Clear();
