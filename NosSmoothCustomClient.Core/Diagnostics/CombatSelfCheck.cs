@@ -60,7 +60,8 @@ public static class CombatSelfCheck
             await AStalledFightGivesWayToMovingAsync().ConfigureAwait(false),
             TheMinimapIsMeasuredFromTheRoute(),
             await TheExitIsNotAStopOnTheRoundAsync().ConfigureAwait(false),
-            await DistantMonstersAreWalkedToAsync().ConfigureAwait(false)
+            await DistantMonstersAreWalkedToAsync().ConfigureAwait(false),
+            await TheRoundIsWalkedInOrderAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -371,6 +372,9 @@ public static class CombatSelfCheck
         options.RepositionAfter = TimeSpan.Zero;
         options.EngagementRadius = 40;
 
+        // Off by default because it breaks the round; this checks the capability, not the default.
+        options.ChaseMonsters = true;
+
         // The probe takes the first tick to ask the game whether anything is close; only after that
         // does the answer - nothing within reach - leave the tick to walking.
         options.SearchInterval = TimeSpan.FromHours(1);
@@ -384,6 +388,67 @@ public static class CombatSelfCheck
         await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
 
         return ("un monstre lointain est rejoint", actuator.Calls.Any(c => c.StartsWith("approach:", StringComparison.Ordinal)));
+    }
+
+    private static async Task<(string, bool)> TheRoundIsWalkedInOrderAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+
+        // Three points to sweep and the way out last - the shape of a real room. Two of them are
+        // close together on purpose: the patrol logic steps past anything already within the
+        // arrival radius, which is how a point ends up never visited at all.
+        options.Waypoints = new List<Waypoint>
+        {
+            new(13, 14, 1351, 100),
+            new(15, 16, 1357, 110),
+            new(13, 24, 1351, 149),
+            new(14, 1, 1354, 36)
+        };
+
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.RepositionAfter = TimeSpan.FromMilliseconds(80);
+        options.WaypointArrivalRadius = 4;
+
+        state.EnterMap(4103);
+        state.UpdatePosition(13, 14);
+
+        // The character obeys the orders instead of being put where the check would like it. Moving
+        // it about of its own accord tests nothing: the sweep decides where to go, so following it
+        // is the only way to find out where it goes.
+        var order = new List<string>();
+
+        for (var tick = 0; tick < 40; tick++)
+        {
+            // Ticks have to be spaced or the quiet spell never elapses and the sweep holds its first
+            // point forever - which is a property of the clock, not of the order being tested.
+            await Task.Delay(50).ConfigureAwait(false);
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+            var latest = actuator.Calls.LastOrDefault(c => c.StartsWith("waypoint:", StringComparison.Ordinal));
+            if (latest is null)
+            {
+                continue;
+            }
+
+            var index = int.Parse(latest.AsSpan("waypoint:".Length));
+
+            if (order.Count == 0 || order[^1] != latest)
+            {
+                order.Add(latest);
+            }
+
+            // Walk there, and let the quiet spell run out so the point is judged finished.
+            var destination = options.Waypoints[index];
+            state.UpdatePosition(destination.X, destination.Y);
+        }
+
+        // Every point of the round, in the order they were recorded, and never the way out while
+        // the room still stands.
+        var wentEverywhere = order.Contains("waypoint:1") && order.Contains("waypoint:2");
+        var keptTheExit = !order.Contains("waypoint:3");
+        var inOrder = order.Take(3).SequenceEqual(new[] { "waypoint:1", "waypoint:2", "waypoint:0" });
+
+        return ("la tournée passe par tous les points, dans l'ordre", wentEverywhere && keptTheExit && inOrder);
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()

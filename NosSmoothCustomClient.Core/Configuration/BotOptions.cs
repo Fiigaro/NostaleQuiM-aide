@@ -172,7 +172,18 @@ public sealed class BotOptions
     /// dies - unless something moves the character. Nothing dying and the lock not moving for this
     /// long is what says the spot is finished.
     /// </remarks>
-    public TimeSpan RepositionAfter { get; set; } = TimeSpan.FromSeconds(5);
+    public TimeSpan RepositionAfter { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the bot leaves its round to chase a known monster.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, and the room is why. Walking to whichever monster is nearest looks efficient
+    /// and destroys the one property a sweep needs: going everywhere. Chasing turned an ordered
+    /// round into a shuttle between two of its points, with the third never visited and the room
+    /// left half full. The points are the plan; the monsters are what is found by following it.
+    /// </remarks>
+    public bool ChaseMonsters { get; set; }
 
     /// <summary>
     /// Gets or sets how long a target may go unmentioned by the server before it is dropped.

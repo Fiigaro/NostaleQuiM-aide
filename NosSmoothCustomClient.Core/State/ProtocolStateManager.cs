@@ -88,6 +88,11 @@ public sealed class ProtocolStateManager
     public ProtocolStateManager(BotOptions options)
     {
         _options = options;
+
+        // Started here rather than left at zero. A clock that has never run cannot be said to have
+        // run out, so a room where nothing dies - wrong key, out of reach, a bot doing nothing at
+        // all - never counted as stalled, and the sweep held its first point for the whole run.
+        _lastFightProgressStamp = Stopwatch.GetTimestamp();
         _position = options.Waypoints.Count > 0 ? options.Waypoints[0] : new Waypoint(0, 0);
     }
 
@@ -303,6 +308,17 @@ public sealed class ProtocolStateManager
     }
 
     /// <summary>
+    /// Restarts the clock that says whether the fight is getting anywhere.
+    /// </summary>
+    /// <remarks>
+    /// Called when the bot moves on by choice. Without it, arriving somewhere with the stall clock
+    /// already run down reads as "nothing here either" on the very first tick, and the whole round
+    /// is walked through in a couple of seconds without a blow struck.
+    /// </remarks>
+    public void NoteFightProgress()
+        => Interlocked.Exchange(ref _lastFightProgressStamp, Stopwatch.GetTimestamp());
+
+    /// <summary>
     /// Reports whether the fight has stopped getting anywhere.
     /// </summary>
     /// <param name="after">How long without progress counts.</param>
@@ -419,8 +435,10 @@ public sealed class ProtocolStateManager
             return false;
         }
 
-        // A new room has its own monsters; whatever was cleared belonged to the last one.
+        // A new room has its own monsters; whatever was cleared belonged to the last one, and its
+        // quiet spell has nothing to say about this one either.
         _roomCleared = false;
+        NoteFightProgress();
         ForgetAllEntities();
         ClearTarget();
         return true;

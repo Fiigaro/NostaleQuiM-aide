@@ -431,11 +431,19 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             return;
         }
 
-        // A monster the server has told us about beats a waypoint. The attack key only reaches what
-        // is already close, so the ones it cannot see are the whole reason the room stops emptying -
-        // and the packets have been naming them and their coordinates all along.
-        if (_options.InstanceMode && await TryCloseInOnAMonsterAsync(ct).ConfigureAwait(false))
+        // Off by default. Walking to whichever monster is nearest looks efficient and destroys the
+        // one property a sweep needs - that it goes everywhere.
+        if (_options.InstanceMode && _options.ChaseMonsters
+            && await TryCloseInOnAMonsterAsync(ct).ConfigureAwait(false))
         {
+            return;
+        }
+
+        // The round, in order. Each point is held until it stops producing kills, then the next one
+        // is taken - which is what makes a room get swept rather than shuttled across.
+        if (_options.InstanceMode)
+        {
+            await SweepRoomAsync(ct).ConfigureAwait(false);
             return;
         }
 
@@ -568,6 +576,92 @@ public sealed class OrchestrationBackgroundService : BackgroundService
             position.X,
             position.Y
         );
+    }
+
+    /// <summary>
+    /// Works the round one point at a time: stand, fight, move on when nothing more falls.
+    /// </summary>
+    /// <remarks>
+    /// The patrol logic is wrong for a room. It steps past every point already within the arrival
+    /// radius, so points close together are never visited - and it advances on arrival, which means
+    /// walking through the round rather than fighting it. Here arriving is not the goal: the point
+    /// is held until the fight there stops producing anything, and only then does the next one
+    /// become current. Strictly the next one, so a round of three is a round of three.
+    /// </remarks>
+    private async Task SweepRoomAsync(CancellationToken ct)
+    {
+        var waypoints = _options.Waypoints;
+        var index = _state.WaypointIndex % waypoints.Count;
+
+        // The way out is not part of the round; it is where the round ends.
+        if (index == _options.ResolveExitWaypoint())
+        {
+            _state.AdvanceWaypoint();
+            index = _state.WaypointIndex % waypoints.Count;
+        }
+
+        var waypoint = waypoints[index];
+        var position = _state.Position;
+        var distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
+        var arrived = _state.HasPosition && distance <= _options.WaypointArrivalRadius;
+
+        // Just got here: the point deserves its full window before being judged finished, whatever
+        // the clock said about the place we walked from.
+        if (arrived && _walkingTo == index)
+        {
+            _state.NoteFightProgress();
+            _walkingTo = -1;
+            Decide(4, "instance : arrivé au point {0} {1}", index + 1, waypoint);
+            return;
+        }
+
+        if (arrived && !_state.FightStalled(_options.RepositionAfter))
+        {
+            Decide(4, "instance : on tient le point {0} {1} tant que ça tombe", index + 1, waypoint);
+            return;
+        }
+
+        if (arrived)
+        {
+            var next = _state.AdvanceWaypoint();
+
+            // The clock starts again here, or the next point is judged finished before the character
+            // has even set off for it and the whole round is walked through in seconds.
+            _state.NoteFightProgress();
+            _walkingTo = -1;
+
+            _logger.LogInformation
+            (
+                "Point {Index} {Waypoint} ne produit plus rien après {Seconds:0.#}s - au suivant, {Next}.",
+                index + 1,
+                waypoint,
+                _options.RepositionAfter.TotalSeconds,
+                next
+            );
+
+            waypoint = next;
+            index = _state.WaypointIndex % waypoints.Count;
+            distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
+        }
+
+        if (!ShouldReissueWalk(index, position))
+        {
+            Decide(4, "instance : en route vers le point {0} {1}, {2} cases", index + 1, waypoint, distance);
+            return;
+        }
+
+        Decide(4, "instance : direction le point {0} {1}, {2} cases", index + 1, waypoint, distance);
+
+        if (!await _actuator.GoToWaypointAsync(index, ct).ConfigureAwait(false))
+        {
+            ReportWaypointRefused(index, waypoint);
+            _walkingTo = -1;
+            return;
+        }
+
+        _walkingTo = index;
+        _walkedFrom = position;
+        _walkedAt = DateTimeOffset.UtcNow;
     }
 
     /// <summary>

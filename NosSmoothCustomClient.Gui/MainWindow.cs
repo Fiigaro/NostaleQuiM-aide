@@ -106,6 +106,20 @@ public sealed class MainWindow : Window
         HorizontalContentAlignment = HorizontalAlignment.Center
     };
 
+    private readonly NumericUpDown _repositionAfter = new()
+    {
+        Minimum = 0.5m,
+        Maximum = 30,
+        Increment = 0.5m,
+        FormatString = "0.#",
+        Width = 90,
+        Height = 34,
+        FontSize = 15,
+        Padding = new Thickness(6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalContentAlignment = HorizontalAlignment.Center
+    };
+
     private readonly NumericUpDown _arrivalRadius = new()
     {
         Minimum = 1,
@@ -257,6 +271,16 @@ public sealed class MainWindow : Window
             if (e.NewValue is { } value)
             {
                 _options.ExitWaypoint = (int)value;
+                MarkDirty();
+            }
+        };
+
+        _repositionAfter.Value = (decimal)_options.RepositionAfter.TotalSeconds;
+        _repositionAfter.ValueChanged += (_, e) =>
+        {
+            if (e.NewValue is { } value)
+            {
+                _options.RepositionAfter = TimeSpan.FromSeconds((double)value);
                 MarkDirty();
             }
         };
@@ -1166,10 +1190,23 @@ public sealed class MainWindow : Window
         instance.Children.Add(_exitWaypoint);
         panel.Children.Add(instance);
 
+        var dwell = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        dwell.Children.Add(new TextBlock
+        {
+            Text = "Passer au point suivant après (s)",
+            Foreground = Muted,
+            FontSize = 11.5,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        dwell.Children.Add(_repositionAfter);
+        panel.Children.Add(dwell);
+
         panel.Children.Add(Note
         (
-            "En mode instance la route n'est pas un circuit : les autres points servent à attirer "
-            + "les monstres, et celui de sortie est pris quand le serveur annonce la salle finie."
+            "En mode instance les points sont une tournée : le bot tient chacun tant que des "
+            + "monstres y tombent, puis passe au suivant dans l'ordre. La sortie n'en fait pas "
+            + "partie — elle est prise quand le serveur annonce la salle finie."
         ));
 
         var radius = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
