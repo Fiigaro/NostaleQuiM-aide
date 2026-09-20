@@ -8,6 +8,7 @@ using System.IO;
 using NosSmoothCustomClient.Diagnostics;
 using NosSmoothCustomClient.Input;
 using NosSmoothCustomClient.State;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -263,6 +264,18 @@ public static class SelfTest
         return failed == 0 ? 0 : 3;
     }
 
+    /// <summary>
+    /// Loads a written settings file exactly as a fresh launch would.
+    /// </summary>
+    private static BotOptions ReadBack(string path)
+    {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddJsonFile(path, optional: false, reloadOnChange: false)
+            .Build();
+
+        return BotConfigurationFile.Apply(configuration).Options;
+    }
+
     private static bool RewardSequenceReadsBack()
     {
         var options = new BotOptions
@@ -282,10 +295,20 @@ public static class SelfTest
         }
 
         var json = File.ReadAllText(path);
+
+        // Written is not read. A sequence that goes out to the file and does not come back is one
+        // recorded once and lost at the next launch, and the write alone cannot tell the two apart -
+        // so this goes through the very pipeline the app starts with.
+        var reloaded = ReadBack(path);
+
         File.Delete(path);
 
-        return json.Contains("\"tirage\"") && json.Contains("\"DoubleClick\": true")
-               && options.RewardSequence[0].ToString().Contains("double-clic");
+        return json.Contains("\"tirage\"")
+               && reloaded.RewardSequence.Count == 2
+               && reloaded.RewardSequence[0].DoubleClick
+               && reloaded.RewardSequence[0].X == 467
+               && !reloaded.RewardSequence[1].DoubleClick
+               && reloaded.RewardSequence[1].Y == 571;
     }
 
     private static bool RunEventReadsBack()
