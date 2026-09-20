@@ -83,6 +83,12 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets how long to wait for the reward panel to appear.</summary>
     public double? RewardDelaySeconds { get; set; }
 
+    /// <summary>Gets or sets the recorded steps that open the instance.</summary>
+    public List<StartupStepEntry>? StartupSequence { get; set; }
+
+    /// <summary>Gets or sets whether the launch sequence plays when the bot is started.</summary>
+    public bool? AutoLaunchInstance { get; set; }
+
     /// <summary>Gets or sets the attack rotation, in priority order.</summary>
     public List<SkillEntry>? Skills { get; set; }
 
@@ -113,6 +119,43 @@ public sealed class BotConfigurationFile
 
         /// <summary>Gets or sets how long to wait afterwards.</summary>
         public int WaitAfterMs { get; set; } = 800;
+    }
+
+    /// <summary>One recorded step of the launch sequence.</summary>
+    public sealed class StartupStepEntry
+    {
+        /// <summary>Gets or sets what the step is.</summary>
+        public string? Name { get; set; }
+
+        /// <summary>Gets or sets whether it is a key or a click.</summary>
+        public string? Action { get; set; }
+
+        /// <summary>Gets or sets the key, for a key step.</summary>
+        public string? Key { get; set; }
+
+        /// <summary>Gets or sets X inside the game window.</summary>
+        public int X { get; set; }
+
+        /// <summary>Gets or sets Y inside the game window.</summary>
+        public int Y { get; set; }
+
+        /// <summary>Gets or sets whether the click is a double one.</summary>
+        public bool DoubleClick { get; set; }
+
+        /// <summary>Gets or sets the pause held before the step.</summary>
+        public int WaitBeforeMs { get; set; }
+
+        /// <summary>Gets or sets the map that has to have loaded first.</summary>
+        public int? UntilMap { get; set; }
+
+        /// <summary>Gets or sets the X that has to have been reached first.</summary>
+        public int? UntilX { get; set; }
+
+        /// <summary>Gets or sets the Y that has to have been reached first.</summary>
+        public int? UntilY { get; set; }
+
+        /// <summary>Gets or sets how long to wait for that before playing it anyway.</summary>
+        public int TimeoutMs { get; set; } = 20000;
     }
 
     public sealed class WaypointEntry
@@ -228,6 +271,30 @@ public sealed class BotConfigurationFile
                 .ToList();
 
             applied.Add("RewardSequence");
+        }
+
+        Set(file.AutoLaunchInstance, v => options.AutoLaunchInstance = v, "AutoLaunchInstance", applied);
+
+        if (file.StartupSequence is { Count: > 0 } launch)
+        {
+            options.StartupSequence = launch
+                .Select(s => new StartupStep
+                (
+                    s.Name ?? "étape",
+                    Enum.TryParse<StartupAction>(s.Action, true, out var action) ? action : StartupAction.Click,
+                    s.Key,
+                    s.X,
+                    s.Y,
+                    s.DoubleClick,
+                    s.WaitBeforeMs,
+                    s.UntilMap,
+                    s.UntilX,
+                    s.UntilY,
+                    s.TimeoutMs
+                ))
+                .ToList();
+
+            applied.Add("StartupSequence");
         }
 
         if (Enum.TryParse<MinimapClickMode>(file.MinimapClickMode, true, out var clickMode))

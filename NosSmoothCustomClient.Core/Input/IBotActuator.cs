@@ -71,6 +71,17 @@ public interface IBotActuator
     /// </remarks>
     Task<bool> ClickSequenceAsync(IReadOnlyList<UiPoint> points, CancellationToken ct = default);
 
+    /// <summary>Presses one named key, whatever it is bound to elsewhere.</summary>
+    /// <param name="key">The key, as written in a recorded sequence.</param>
+    /// <param name="ct">The cancellation token.</param>
+    /// <returns>True when the key was accepted by the window.</returns>
+    /// <remarks>
+    /// The quick bar is described by the configuration; a launch sequence is not. Sitting down to
+    /// wake an instance up, or answering a portal prompt with Enter, are keys that belong to one
+    /// recorded sequence and to nothing else, so they are named by the step rather than bound.
+    /// </remarks>
+    Task<bool> PressKeyAsync(string key, CancellationToken ct = default);
+
     /// <summary>Takes one step towards a cell.</summary>
     /// <param name="x">Destination X.</param>
     /// <param name="y">Destination Y.</param>

@@ -28,6 +28,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private readonly BotController _controller;
     private readonly BotOptions _options;
     private readonly ILogger<OrchestrationBackgroundService> _logger;
+    private readonly InstanceLauncher _launcher;
 
     private int _lastLoggedPriority = -1;
 
@@ -45,6 +46,9 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private DateTimeOffset? _rewardDueAt;
     private int _rewardRoom = int.MinValue;
     private int _lastMapSeen = int.MinValue;
+
+    // The last run/pause state seen, so starting the bot can be told from being started.
+    private bool _wasRunning;
 
     // A destination that is not a waypoint, so the journey bookkeeping can tell it from one.
     private const int MonsterDestination = -2;
@@ -67,9 +71,11 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         BuffTracker buffs,
         BotController controller,
         BotOptions options,
+        InstanceLauncher launcher,
         ILogger<OrchestrationBackgroundService> logger
     )
     {
+        _launcher = launcher;
         _state = state;
         _actuator = actuator;
         _rotation = rotation;
@@ -132,13 +138,39 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
         if (!_controller.IsRunning)
         {
+            if (_wasRunning)
+            {
+                // A launch half played is a launch in a world nobody is watching any more: it stops
+                // here rather than resuming later into panels that have long since closed.
+                _wasRunning = false;
+                _launcher.Stop();
+            }
+
             // Paused: the packet pipeline keeps running, so the loop resumes on fresh state.
             LastDecision = "en pause";
             return;
         }
 
+        if (!_wasRunning)
+        {
+            _wasRunning = true;
+
+            if (_options.AutoLaunchInstance && _options.InstanceMode)
+            {
+                LaunchInstance();
+            }
+        }
+
         // Serialize the whole decision so two ticks can never interleave their actions.
         using var cycle = await _state.EnterCycleAsync(ct).ConfigureAwait(false);
+
+        // Before everything: while the instance is being opened, there is no fight to join, no
+        // route that means anything, and every key the loop would press lands in a panel.
+        if (await _launcher.TickAsync(_actuator, ct).ConfigureAwait(false))
+        {
+            LastDecision = _launcher.Status;
+            return;
+        }
 
         if (await TrySurviveAsync(ct).ConfigureAwait(false))
         {
@@ -680,6 +712,16 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         _walkedFrom = position;
         _walkedAt = DateTimeOffset.UtcNow;
     }
+
+    /// <summary>
+    /// Plays the recorded sequence that opens the instance, from its first step.
+    /// </summary>
+    /// <returns>True when there was a sequence to play.</returns>
+    public bool LaunchInstance()
+        => _launcher.Start();
+
+    /// <summary>Gets the launcher, so its progress can be shown and stopped.</summary>
+    public InstanceLauncher Launcher => _launcher;
 
     /// <summary>
     /// Owes the reward clicks, from now plus the time the panel needs to appear.

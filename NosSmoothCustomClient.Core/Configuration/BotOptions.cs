@@ -189,6 +189,27 @@ public sealed class BotOptions
     public TimeSpan RewardDelay { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
+    /// Gets or sets the recorded steps that open the instance and walk into its first room.
+    /// </summary>
+    /// <remarks>
+    /// Everything before the first monster is panels and prompts that no packet announces: waking
+    /// the entrance up, the mission window, START, the walk to the portal, the prompt that asks
+    /// whether to go in. It cannot be decided, only recorded once and replayed - and each step
+    /// carries the map or the place it was recorded against, so the replay waits for the world
+    /// rather than for a number of seconds.
+    /// </remarks>
+    public IList<StartupStep> StartupSequence { get; set; } = new List<StartupStep>();
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the launch sequence plays when the bot is started.
+    /// </summary>
+    /// <remarks>
+    /// Off by default: a sequence that opens an instance the moment the bot is switched on is the
+    /// last thing wanted while a route is being recorded or a fight is being watched.
+    /// </remarks>
+    public bool AutoLaunchInstance { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the bot leaves its round to chase a known monster.
     /// </summary>
     /// <remarks>

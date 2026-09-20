@@ -153,6 +153,33 @@ public static class SelfTest
             rewardPlaysOnDemand = silentBefore && !string.IsNullOrWhiteSpace(rewardStatus.Text);
         }
 
+        // Lancer au démarrage doit atteindre les options en direct.
+        var autoLaunchEdits = false;
+        var autoLaunchBox = boxes.FirstOrDefault(b => (b.Content as string)?.Contains("au démarrage") == true);
+
+        if (autoLaunchBox is not null)
+        {
+            var before = options.AutoLaunchInstance;
+            autoLaunchBox.IsChecked = !before;
+            Dispatcher.UIThread.RunJobs();
+            autoLaunchEdits = options.AutoLaunchInstance != before;
+            autoLaunchBox.IsChecked = before;
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // Et « Lancer maintenant » doit dire pourquoi il ne lance pas, plutôt que rester muet -
+        // c'est exactement le reproche déjà fait à un bouton qui ne répondait rien.
+        var launchAnswers = false;
+        var launchStatus = visuals.OfType<TextBlock>().FirstOrDefault(t => t.Name == "launchStatus");
+
+        if (launchStatus is not null
+            && visuals.OfType<Button>().FirstOrDefault(b => b.Name == "launchNow") is { } launchButton)
+        {
+            var silentBefore = string.IsNullOrWhiteSpace(launchStatus.Text);
+            Click(launchButton);
+            launchAnswers = silentBefore && !string.IsNullOrWhiteSpace(launchStatus.Text);
+        }
+
         // Cocher le mode instance doit atteindre les options en direct, comme toute autre case.
         var instanceToggles = false;
         var instanceBox = boxes.FirstOrDefault(b => (b.Content as string)?.Contains("instance") == true);
@@ -274,6 +301,12 @@ public static class SelfTest
             // déclenché » - et le bouton doit répondre quelque chose, jamais rester muet.
             ("les clics de recompense se rejouent a la main", rewardPlaysOnDemand),
 
+            // Le lancement est la moitié du travail qu'aucun paquet ne décrit : s'il n'est ni
+            // listé ni relisible après sauvegarde, il est perdu au prochain démarrage.
+            ("sequence de lancement listee", texts.Any(t => t.Contains("MISSION")) && LaunchSequenceReadsBack()),
+            ("lancement au demarrage reglable", autoLaunchEdits),
+            ("le bouton de lancement repond toujours", launchAnswers),
+
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.
             ("effacer vide la route en cours", clearWorks),
@@ -308,6 +341,42 @@ public static class SelfTest
             .Build();
 
         return BotConfigurationFile.Apply(configuration).Options;
+    }
+
+    private static bool LaunchSequenceReadsBack()
+    {
+        var options = new BotOptions
+        {
+            AutoLaunchInstance = true,
+            StartupSequence = new List<StartupStep>
+            {
+                new("assis", StartupAction.Key, Key: "C", WaitBeforeMs: 700),
+                new("START", StartupAction.Click, X: 512, Y: 611, DoubleClick: true, WaitBeforeMs: 1200),
+                new("entrer", StartupAction.Key, Key: "Entrée", UntilMap: 4100, UntilX: 30, UntilY: 40, TimeoutMs: 45000)
+            }
+        };
+
+        var (path, _) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
+        if (path is null)
+        {
+            return false;
+        }
+
+        // A launch that does not come back is one recorded once and lost at the next launch, and
+        // every condition on it has to come back too: a step that forgets which map it was waiting
+        // for is a step played into a loading screen.
+        var reloaded = ReadBack(path);
+
+        return reloaded.AutoLaunchInstance
+               && reloaded.StartupSequence.Count == 3
+               && reloaded.StartupSequence[0].Key == "C"
+               && reloaded.StartupSequence[0].Action == StartupAction.Key
+               && reloaded.StartupSequence[0].WaitBeforeMs == 700
+               && reloaded.StartupSequence[1].DoubleClick
+               && reloaded.StartupSequence[1].X == 512
+               && reloaded.StartupSequence[2].UntilMap == 4100
+               && reloaded.StartupSequence[2].UntilY == 40
+               && reloaded.StartupSequence[2].TimeoutMs == 45000;
     }
 
     private static bool RewardSequenceReadsBack()

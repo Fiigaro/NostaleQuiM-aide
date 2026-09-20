@@ -89,6 +89,20 @@ public sealed class MainWindow : Window
     private readonly TextBlock _rewardStatus = new() { Name = "rewardStatus", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly StackPanel _rewardList = new() { Spacing = 2 };
 
+    private readonly Button _buildLaunch = new() { Name = "buildLaunch", Content = "Faire de ce run la séquence", Width = 230, Height = 28 };
+    private readonly Button _launchNow = new() { Name = "launchNow", Content = "Lancer maintenant", Width = 170, Height = 28 };
+    private readonly Button _clearLaunch = new() { Content = "Effacer", Width = 90, Height = 28 };
+    private readonly TextBlock _launchStatus = new() { Name = "launchStatus", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+    private readonly StackPanel _launchList = new() { Spacing = 2 };
+
+    private readonly CheckBox _autoLaunch = new()
+    {
+        Content = "Lancer l'espace-temps au démarrage du bot",
+        Foreground = Ink,
+        FontSize = 12.5,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
     private readonly NumericUpDown _rewardDelay = new()
     {
         Name = "rewardDelay",
@@ -278,6 +292,16 @@ public sealed class MainWindow : Window
         _adoptMap.Click += (_, _) => AdoptCurrentMap();
         _clearReward.Click += (_, _) => { _recorder?.ClearUiPoints(); RefreshRoute(); };
         _playReward.Click += (_, _) => PlayRewardNow();
+        _buildLaunch.Click += (_, _) => BuildLaunchFromRun();
+        _launchNow.Click += (_, _) => LaunchNow();
+        _clearLaunch.Click += (_, _) => { _options.StartupSequence.Clear(); MarkDirty(); RefreshLaunch(); };
+
+        _autoLaunch.IsChecked = _options.AutoLaunchInstance;
+        _autoLaunch.IsCheckedChanged += (_, _) =>
+        {
+            _options.AutoLaunchInstance = _autoLaunch.IsChecked == true;
+            MarkDirty();
+        };
 
         _rewardDelay.Value = (decimal)_options.RewardDelay.TotalSeconds;
         _rewardDelay.ValueChanged += (_, e) =>
@@ -430,6 +454,7 @@ public sealed class MainWindow : Window
         RefreshSkills();
         RefreshBuffs();
         RefreshRoute();
+        RefreshLaunch();
         RefreshReadiness();
         RefreshRun();
         RefreshLog();
@@ -1419,7 +1444,141 @@ public sealed class MainWindow : Window
             + "c'est ce qui distingue des coordonnées fausses d'une séquence jamais déclenchée."
         ));
 
+        panel.Children.Add(Heading("Lancement de l'espace-temps"));
+        panel.Children.Add(Note
+        (
+            "Tout ce qui précède le premier monstre est de l'interface : s'asseoir et se relever "
+            + "pour réveiller l'entrée, la fenêtre MISSION, START, la marche jusqu'au portail, la "
+            + "question « première salle ? ». Aucun paquet ne l'annonce, donc ça ne se devine pas : "
+            + "ça s'enregistre une fois et ça se rejoue."
+        ));
+
+        panel.Children.Add(Note
+        (
+            "Dans le jeu, F11 pour démarrer l'enregistrement, fais le lancement à la main "
+            + "(C, C, START, marche, Entrée), F11 pour arrêter, puis « Faire de ce run la "
+            + "séquence ». Chaque étape retient la carte ou l'endroit où tu étais : la relecture "
+            + "attend le chargement, elle ne compte pas les secondes.",
+            Ink
+        ));
+
+        panel.Children.Add(_autoLaunch);
+
+        var launchActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        launchActions.Children.Add(_buildLaunch);
+        launchActions.Children.Add(_launchNow);
+        launchActions.Children.Add(_clearLaunch);
+        launchActions.Children.Add(_launchStatus);
+        panel.Children.Add(launchActions);
+        panel.Children.Add(_launchList);
+
         return panel;
+    }
+
+    /// <summary>
+    /// Turns the run just recorded into the sequence that opens the instance.
+    /// </summary>
+    private void BuildLaunchFromRun()
+    {
+        if (_runs is null)
+        {
+            _launchStatus.Text = "disponible en mode capture (--pcap)";
+            _launchStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (_runs.Recording)
+        {
+            _launchStatus.Text = "arrête l'enregistrement d'abord (F11)";
+            _launchStatus.Foreground = Blocked;
+            return;
+        }
+
+        var steps = StartupSequenceBuilder.FromRun(_runs.Events);
+
+        if (steps.Count == 0)
+        {
+            _launchStatus.Text = "ce run ne contient aucune touche ni clic gauche";
+            _launchStatus.Foreground = Blocked;
+            RefreshLaunch();
+            return;
+        }
+
+        _options.StartupSequence = steps.ToList();
+        MarkDirty();
+
+        _launchStatus.Text = $"{steps.Count} étape(s) reprises du run";
+        _launchStatus.Foreground = Ready;
+        RefreshLaunch();
+    }
+
+    /// <summary>
+    /// Plays the launch sequence now, without waiting for the bot to be started.
+    /// </summary>
+    private void LaunchNow()
+    {
+        if (_loop is null)
+        {
+            _launchStatus.Text = "disponible en mode capture (--pcap)";
+            _launchStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (_options.StartupSequence.Count == 0)
+        {
+            _launchStatus.Text = "aucune séquence : enregistre un run (F11) puis reprends-le";
+            _launchStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (!_controller.IsRunning)
+        {
+            _launchStatus.Text = "le bot est en pause : la séquence ne partirait pas";
+            _launchStatus.Foreground = Blocked;
+            return;
+        }
+
+        _loop.LaunchInstance();
+        _launchStatus.Text = "lancement démarré";
+        _launchStatus.Foreground = Ready;
+        RefreshLaunch();
+    }
+
+    private void RefreshLaunch()
+    {
+        _clearLaunch.IsEnabled = _options.StartupSequence.Count > 0;
+        _launchList.Children.Clear();
+
+        if (_loop?.Launcher is { State: LaunchState.Running } running)
+        {
+            _launchStatus.Text = running.Status;
+            _launchStatus.Foreground = Cooling;
+        }
+
+        if (_options.StartupSequence.Count == 0)
+        {
+            _launchList.Children.Add(new TextBlock
+            {
+                Text = "  aucune séquence de lancement enregistrée (F11 puis « Faire de ce run la séquence »)",
+                Foreground = Blocked,
+                FontSize = 11
+            });
+
+            return;
+        }
+
+        var current = _loop?.Launcher is { State: LaunchState.Running } live ? live.Step : 0;
+
+        for (var i = 0; i < _options.StartupSequence.Count; i++)
+        {
+            _launchList.Children.Add(new TextBlock
+            {
+                Text = $"  {i + 1}.  {_options.StartupSequence[i]}",
+                Foreground = i + 1 == current ? Ready : Ink,
+                FontSize = 11,
+                FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace")
+            });
+        }
     }
 
     private void ToggleLive()

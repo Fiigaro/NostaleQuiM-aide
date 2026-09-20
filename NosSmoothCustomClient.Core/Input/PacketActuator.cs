@@ -69,6 +69,13 @@ public sealed class PacketActuator : IBotActuator
     }
 
     /// <inheritdoc />
+    public Task<bool> PressKeyAsync(string key, CancellationToken ct = default)
+    {
+        // Same reason: a key is pressed at a client, and there is none on this side.
+        return Task.FromResult(false);
+    }
+
+    /// <inheritdoc />
     public bool TryAnotherWayToMove(out string what)
     {
         // A walk packet the server accepted is a walk that happened; there is no second way.

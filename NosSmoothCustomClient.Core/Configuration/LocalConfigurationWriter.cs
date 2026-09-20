@@ -75,6 +75,21 @@ public static class LocalConfigurationWriter
                         p.Y,
                         p.DoubleClick,
                         p.WaitAfterMs
+                    }),
+                    options.AutoLaunchInstance,
+                    StartupSequence = options.StartupSequence.Select(s => new
+                    {
+                        s.Name,
+                        Action = s.Action.ToString(),
+                        s.Key,
+                        s.X,
+                        s.Y,
+                        s.DoubleClick,
+                        s.WaitBeforeMs,
+                        s.UntilMap,
+                        s.UntilX,
+                        s.UntilY,
+                        s.TimeoutMs
                     })
                 }
             };

@@ -184,6 +184,7 @@ public static class BotServiceRegistration
         services.AddHostedService<NostaleClientHostedService>();
         // Registered as itself and forwarded, so the window can read what the loop last decided
         // rather than inferring it from the log.
+        services.AddSingleton<InstanceLauncher>();
         services.AddSingleton<OrchestrationBackgroundService>();
         services.AddHostedService(sp => sp.GetRequiredService<OrchestrationBackgroundService>());
 

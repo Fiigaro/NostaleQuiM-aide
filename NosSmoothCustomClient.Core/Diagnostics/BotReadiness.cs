@@ -76,6 +76,11 @@ public static class BotReadiness
         {
             items.Add(Instance(options, state));
             items.Add(Reward(options));
+
+            if (options.AutoLaunchInstance)
+            {
+                items.Add(Launch(options));
+            }
         }
 
         if (input is not null)
@@ -199,6 +204,20 @@ public static class BotReadiness
                 $"{options.RewardSequence.Count} clic(s), joués {options.RewardDelay.TotalSeconds:0.#}s "
                 + "après la sortie (ou après le chargement de carte qui suit)"
             );
+
+    /// <summary>
+    /// The recorded sequence that opens the instance, when the bot is meant to open it itself.
+    /// </summary>
+    private static ReadinessItem Launch(BotOptions options)
+        => options.StartupSequence.Count == 0
+            ? new ReadinessItem
+            (
+                "Lancement",
+                false,
+                "lancement au démarrage demandé, mais aucune séquence enregistrée : "
+                + "enregistre un run (F11) et reprends-le"
+            )
+            : new ReadinessItem("Lancement", true, $"{options.StartupSequence.Count} étape(s) au démarrage");
 
     private static ReadinessItem ClickMode(BotOptions options, SwitchableGameInput input)
     {

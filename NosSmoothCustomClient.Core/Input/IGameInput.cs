@@ -84,6 +84,25 @@ public readonly record struct GameKey(string Label, ushort VirtualKey)
             return true;
         }
 
+        // A launch sequence answers panels, and panels are answered with keys that have names
+        // rather than letters. Without these, a recorded "Enter" comes back unparsable and the step
+        // that enters the portal silently does nothing.
+        if (trimmed.Equals("enter", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("entree", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("entrée", StringComparison.OrdinalIgnoreCase))
+        {
+            key = new GameKey("entrée", 0x0D);
+            return true;
+        }
+
+        if (trimmed.Equals("escape", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("echap", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("échap", StringComparison.OrdinalIgnoreCase))
+        {
+            key = new GameKey("échap", 0x1B);
+            return true;
+        }
+
         if (trimmed.Length != 1)
         {
             return false;

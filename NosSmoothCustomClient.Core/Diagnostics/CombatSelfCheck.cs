@@ -64,7 +64,10 @@ public static class CombatSelfCheck
             await TheRoundIsWalkedInOrderAsync().ConfigureAwait(false),
             await TheRewardIsTakenOnceAsync().ConfigureAwait(false),
             await TheRewardSurvivesTheTeleportAsync().ConfigureAwait(false),
-            await TheRewardOutranksEverythingElseAsync().ConfigureAwait(false)
+            await TheRewardOutranksEverythingElseAsync().ConfigureAwait(false),
+            await TheLaunchWaitsForTheWorldAsync().ConfigureAwait(false),
+            await ALaunchStepGivesUpRatherThanStopsAsync().ConfigureAwait(false),
+            ARecordedRunBecomesALaunch()
         };
 
         var failed = 0;
@@ -562,6 +565,117 @@ public static class CombatSelfCheck
         return ("rien ne passe devant la récompense", heldTheTick && actuator.Calls.Contains("ui:tirage"));
     }
 
+    private static async Task<(string, bool)> TheLaunchWaitsForTheWorldAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.AutoLaunchInstance = true;
+        options.WaypointArrivalRadius = 3;
+
+        // The launch as it is actually played: sit, stand, START, then a map that has to load, a
+        // walk that has to finish, and the prompt answered where it appears.
+        options.StartupSequence = new List<StartupStep>
+        {
+            new("assis", StartupAction.Key, Key: "C", WaitBeforeMs: 0),
+            new("debout", StartupAction.Key, Key: "C", WaitBeforeMs: 0),
+            new("START", StartupAction.Click, X: 512, Y: 611, WaitBeforeMs: 0),
+            new("portail", StartupAction.Click, X: 940, Y: 120, WaitBeforeMs: 0, UntilMap: 4100, TimeoutMs: 600000),
+            new("entrer", StartupAction.Key, Key: "Entrée", WaitBeforeMs: 0, UntilX: 30, UntilY: 40, TimeoutMs: 600000)
+        };
+
+        // A monster in the table throughout: nothing the loop would otherwise do may happen while
+        // panels are on screen, since every one of those is a key sent into a panel.
+        state.TrackEntity(new TrackedEntity(42, EntityType.Monster, 13, 15, 100));
+
+        for (var tick = 0; tick < 4; tick++)
+        {
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+
+        var startedByItself = actuator.Calls.Count(c => c == "key:C") == 2
+                              && actuator.Calls.Contains("ui:START");
+
+        // Stuck on the map that has not loaded, however long it is given.
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var waitedForTheMap = !actuator.Calls.Contains("ui:portail");
+
+        state.EnterMap(4100);
+        state.UpdatePosition(30, 10);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var wentOnAfterTheLoad = actuator.Calls.Contains("ui:portail");
+
+        // And the prompt is answered where it appears, not where the walk started.
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var waitedForTheWalk = !actuator.Calls.Contains("key:Entrée");
+
+        state.UpdatePosition(30, 40);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var entered = actuator.Calls.Contains("key:Entrée");
+
+        // Nothing else got a word in for the whole launch.
+        var nothingElse = !actuator.Calls.Contains("target")
+                          && !actuator.Calls.Any(c => c.StartsWith("waypoint:", StringComparison.Ordinal));
+
+        return ("le lancement attend le monde, pas le chronomètre",
+            startedByItself && waitedForTheMap && wentOnAfterTheLoad && waitedForTheWalk && entered && nothingElse);
+    }
+
+    private static async Task<(string, bool)> ALaunchStepGivesUpRatherThanStopsAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.StartupSequence = new List<StartupStep>
+        {
+            new("entrer", StartupAction.Key, Key: "Entrée", WaitBeforeMs: 0, UntilMap: 9999, TimeoutMs: 120)
+        };
+
+        loop.LaunchInstance();
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var heldAtFirst = !actuator.Calls.Contains("key:Entrée");
+
+        // A condition that never comes true must not park the launch forever in silence: the step
+        // is played once its timeout runs out, and the log says it was.
+        await Task.Delay(180).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        return ("une étape bloquée finit par passer",
+            heldAtFirst && actuator.Calls.Contains("key:Entrée") && loop.Launcher.State == LaunchState.Done);
+    }
+
+    private static (string, bool) ARecordedRunBecomesALaunch()
+    {
+        // A launch played by hand, as the recorder writes it down: two presses of C on the entrance
+        // map, a double click on START, then the portal answered on another map after a walk.
+        var run = new List<RunEvent>
+        {
+            new(0, RunEventKind.Key, "C", null, null, 2628, 107, 96, null, 0),
+            new(900, RunEventKind.Key, "C", null, null, 2628, 107, 96, null, 0),
+            new(2600, RunEventKind.Click, "clic gauche", 512, 611, 2628, 107, 96, null, 0),
+            new(2700, RunEventKind.Click, "clic gauche", 513, 612, 2628, 107, 96, null, 0),
+            new(9000, RunEventKind.State, "changement de carte -> 4100", null, null, 4100, 30, 10, null, 0),
+            new(9200, RunEventKind.Click, "clic gauche", 940, 120, 4100, 30, 10, null, 0),
+            new(20000, RunEventKind.Click, "clic droit", 300, 300, 4100, 30, 40, null, 0),
+            new(21000, RunEventKind.Key, "Entrée", null, null, 4100, 30, 40, null, 0)
+        };
+
+        var steps = StartupSequenceBuilder.FromRun(run);
+
+        // The two clicks a tenth of a second apart were one double click, not two.
+        var merged = steps.Count == 5 && steps[2].DoubleClick && steps[2].X == 512;
+
+        // The step played on the new map waits for that map rather than for a number of seconds.
+        var waitsForTheMap = steps[3].UntilMap == 4100 && steps[3].X == 940;
+
+        // And the one played after a walk waits for the place the walk ended.
+        var waitsForTheWalk = steps[4] is { UntilX: 30, UntilY: 40, Key: "Entrée" };
+
+        // The right click is dropped: the bot has one mouse button, and guessing is worse than
+        // leaving a step for the operator to add.
+        var noRightClick = steps.All(s => s.X != 300);
+
+        return ("un run enregistré devient une séquence de lancement",
+            merged && waitsForTheMap && waitsForTheWalk && noRightClick);
+    }
+
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()
     {
         var options = new BotOptions { Waypoints = new List<Waypoint>() };
@@ -882,6 +996,7 @@ public static class CombatSelfCheck
             new BuffTracker(options, NullLogger<BuffTracker>.Instance),
             new BotController(),
             options,
+            new InstanceLauncher(options, state, NullLogger<InstanceLauncher>.Instance),
             NullLogger<OrchestrationBackgroundService>.Instance
         );
 
@@ -941,6 +1056,8 @@ public static class CombatSelfCheck
 
         public Task<bool> CastSkillAsync(SkillDefinition? skill, long targetEntityId, CancellationToken ct = default)
             => Record(skill is null ? "basic" : "skill:" + skill.Name);
+
+        public Task<bool> PressKeyAsync(string key, CancellationToken ct = default) => Record("key:" + key);
 
         public Task<bool> LootAsync(CancellationToken ct = default) => Record("loot");
 

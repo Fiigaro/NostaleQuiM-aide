@@ -196,6 +196,10 @@ public sealed class InputActuator : IBotActuator
     }
 
     /// <inheritdoc />
+    public Task<bool> PressKeyAsync(string key, CancellationToken ct = default)
+        => PressAsync(key, $"touche {key}", ct);
+
+    /// <inheritdoc />
     public Task<bool> LootAsync(CancellationToken ct = default)
         => PressAsync(_options.Keys.Loot, "loot", ct);
 
