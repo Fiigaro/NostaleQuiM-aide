@@ -208,7 +208,7 @@ public sealed class BotOptions
     /// hard-coded and opens the shop on this one, so every recording started with a shop window in
     /// the way. Anything here has to be a key the game itself ignores.
     /// </remarks>
-    public string RecordRunKey { get; set; } = "F12";
+    public string RecordRunKey { get; set; } = "Pause";
 
     /// <summary>
     /// Gets or sets a value indicating whether the launch sequence plays when the bot is started.

@@ -20,12 +20,14 @@ public readonly record struct HotKey(string Label, int VirtualKey)
     /// <remarks>
     /// F7 to F10 are left out: the waypoint recorder already has them. F11 is offered but last -
     /// on this client it opens the shop, which is exactly the kind of collision this list exists
-    /// to let someone fix without waiting for a new build.
+    /// to let someone fix without waiting for a new build. Pause leads because the two obvious
+    /// candidates both failed on the real machine: F11 to the shop, F12 to Windows, which reserves
+    /// it for debuggers and can swallow it before anything here ever sees it.
     /// </remarks>
     public static IReadOnlyList<HotKey> Choices { get; } = new[]
     {
-        new HotKey("F12", 0x7B),
         new HotKey("Pause", 0x13),
+        new HotKey("F12", 0x7B),
         new HotKey("Inser", 0x2D),
         new HotKey("Suppr", 0x2E),
         new HotKey("Fin", 0x23),

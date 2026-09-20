@@ -42,6 +42,10 @@ public sealed class RunRecorder : BackgroundService
     private volatile bool _recording;
     private long _startedAt;
 
+    // What of the offered hotkeys was last seen pressed, whether or not it is the one bound.
+    private volatile string? _lastHotKey;
+    private long _lastHotKeyAt;
+
     // The last world the recorder saw, so a change can be told from a repeat.
     private int _lastMap = int.MinValue;
     private long? _lastTarget;
@@ -80,6 +84,25 @@ public sealed class RunRecorder : BackgroundService
 
     /// <summary>Gets the key that starts and stops recording, as it reads.</summary>
     public string Key => HotKey.Resolve(_options.RecordRunKey).Label;
+
+    /// <summary>Gets the last offered hotkey seen pressed, and how long ago.</summary>
+    /// <remarks>
+    /// Every key on the list is watched, not only the bound one. That is the whole point: the
+    /// question a dead hotkey raises is whether anything at all gets through, and only a key that
+    /// does can answer it.
+    /// </remarks>
+    public (string Label, TimeSpan Ago)? LastHotKey
+    {
+        get
+        {
+            var label = _lastHotKey;
+            var at = Interlocked.Read(ref _lastHotKeyAt);
+
+            return label is null || at == 0
+                ? null
+                : (label, Stopwatch.GetElapsedTime(at, Stopwatch.GetTimestamp()));
+        }
+    }
 
     /// <summary>Gets a value indicating whether a run is being recorded right now.</summary>
     public bool Recording => _recording;
@@ -218,12 +241,31 @@ public sealed class RunRecorder : BackgroundService
         );
 
         var down = new Dictionary<int, bool>();
+        var hotKeys = new Dictionary<int, bool>();
         var toggleWas = false;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                // Every offered key, not only the bound one. A key that never arrives and a key
+                // whose action is broken look the same from outside, and this is what tells them
+                // apart without a debugger on the operator's machine.
+                foreach (var choice in HotKey.Choices)
+                {
+                    var pressed = IsDown(choice.VirtualKey);
+                    hotKeys.TryGetValue(choice.VirtualKey, out var wasPressed);
+                    hotKeys[choice.VirtualKey] = pressed;
+
+                    if (pressed && !wasPressed)
+                    {
+                        _lastHotKey = choice.Label;
+                        Interlocked.Exchange(ref _lastHotKeyAt, Stopwatch.GetTimestamp());
+                        _logger.LogInformation("Hotkey seen: {Key}.", choice.Label);
+                        Changed?.Invoke();
+                    }
+                }
+
                 // Read every pass rather than once at startup: the key is a setting, and one
                 // changed because it collided with the game has to take effect there and then.
                 var toggle = IsDown(HotKey.Resolve(_options.RecordRunKey).VirtualKey);

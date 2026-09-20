@@ -158,12 +158,17 @@ public static class SelfTest
         if (visuals.OfType<ComboBox>().FirstOrDefault(c => c.Name == "recordKey") is { } keyBox)
         {
             var before = options.RecordRunKey;
-            keyBox.SelectedItem = "Pause";
+
+            // Deliberately not a hard-coded key: picking the one already in force would assert
+            // nothing, and the default has moved once already.
+            var other = HotKey.Choices.First(k => !k.Label.Equals(before, StringComparison.OrdinalIgnoreCase)).Label;
+
+            keyBox.SelectedItem = other;
             Dispatcher.UIThread.RunJobs();
 
-            recordKeyEdits = options.RecordRunKey == "Pause"
+            recordKeyEdits = options.RecordRunKey == other
                              && visuals.OfType<TextBlock>()
-                                 .Any(t => t.Text is { } text && text.Contains("Pause") && text.Contains("lancement"));
+                                 .Any(t => t.Text is { } text && text.Contains(other) && text.Contains("lancement"));
 
             keyBox.SelectedItem = before;
             Dispatcher.UIThread.RunJobs();

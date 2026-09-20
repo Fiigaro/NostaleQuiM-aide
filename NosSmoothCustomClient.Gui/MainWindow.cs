@@ -101,6 +101,13 @@ public sealed class MainWindow : Window
         TextWrapping = TextWrapping.Wrap
     };
 
+    private readonly TextBlock _keyWatch = new()
+    {
+        Name = "keyWatch",
+        FontSize = 11,
+        TextWrapping = TextWrapping.Wrap
+    };
+
     private readonly ComboBox _recordKey = new()
     {
         Name = "recordKey",
@@ -1187,6 +1194,16 @@ public sealed class MainWindow : Window
         panel.Children.Add(Field("Touche d'enregistrement", _recordKey,
             "pressée dans le jeu ; elle doit être une touche dont le client ne fait rien"));
 
+        panel.Children.Add(_keyWatch);
+
+        panel.Children.Add(Note
+        (
+            "Toutes les touches de la liste sont surveillées, pas seulement celle choisie : appuie "
+            + "sur l'une d'elles dans le jeu et la ligne ci-dessus le dit. Si rien ne s'affiche, la "
+            + "touche est interceptée avant d'arriver ici — prends-en une autre. Le bouton "
+            + "ci-dessous, lui, marche toujours : clique dessus puis retourne dans le jeu."
+        ));
+
         panel.Children.Add(Note
         (
             "Joue la séquence à la main : chaque touche et chaque clic envoyés au jeu sont notés "
@@ -1214,8 +1231,20 @@ public sealed class MainWindow : Window
             _runSave.IsEnabled = false;
             _runClear.IsEnabled = false;
             _runStatus.Text = "disponible en mode capture (--pcap)";
+            _keyWatch.Text = "surveillance des touches disponible en mode capture (--pcap)";
+            _keyWatch.Foreground = Muted;
             return;
         }
+
+        var (watchText, watchGood) = HotKeyWatch.Describe
+        (
+            _runs.LastHotKey?.Label,
+            _runs.LastHotKey?.Ago,
+            _runs.Key
+        );
+
+        _keyWatch.Text = watchText;
+        _keyWatch.Foreground = watchGood ? Ready : Cooling;
 
         if (!_runs.Available)
         {

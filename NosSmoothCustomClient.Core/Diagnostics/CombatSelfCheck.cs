@@ -68,7 +68,8 @@ public static class CombatSelfCheck
             await TheLaunchWaitsForTheWorldAsync().ConfigureAwait(false),
             await ALaunchStepGivesUpRatherThanStopsAsync().ConfigureAwait(false),
             ARecordedRunBecomesALaunch(),
-            TheRecordingKeyIsFreeOfTheOthers()
+            TheRecordingKeyIsFreeOfTheOthers(),
+            ADeadHotKeyIsToldApartFromABrokenOne()
         };
 
         var failed = 0;
@@ -692,6 +693,25 @@ public static class CombatSelfCheck
         var reads = HotKey.TryParse("pause", out var pause) && pause.VirtualKey == 0x13;
 
         return ("la touche d'enregistrement ne marche sur aucune autre", noCollision && fallsBack && reads);
+    }
+
+    private static (string, bool) ADeadHotKeyIsToldApartFromABrokenOne()
+    {
+        // Nothing seen yet: the line has to invite the press that settles it, not merely stay blank.
+        var (silent, silentGood) = HotKeyWatch.Describe(null, null, "Pause");
+        var saysWhatToDo = !silentGood && silent.Contains("Pause");
+
+        // The bound key came through: recording works, and anything still wrong is downstream.
+        var (bound, boundGood) = HotKeyWatch.Describe("Pause", TimeSpan.FromSeconds(2), "Pause");
+
+        // Another key came through while the bound one did not. This is the case that took a real
+        // run to find - F12 never arrives, so the recorder looks broken while it is simply deaf to
+        // that one key - and it has to read as a key problem, not as a working recorder.
+        var (other, otherGood) = HotKeyWatch.Describe("Inser", TimeSpan.FromSeconds(1), "F12");
+        var namesBoth = !otherGood && other.Contains("Inser") && other.Contains("F12");
+
+        return ("une touche jamais reçue se distingue d'une touche cassée",
+            saysWhatToDo && boundGood && bound.Contains("Pause") && namesBoth);
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()
