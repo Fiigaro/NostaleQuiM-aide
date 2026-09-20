@@ -38,10 +38,13 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     private DateTimeOffset _nextRefusalWarning = DateTimeOffset.MinValue;
     private int _stalls;
 
-    // Once per room. Cleared on the next map, since that is a new run of the same sequence.
+    // The reward is a commitment, not a decision retaken every tick: once the way out is reached
+    // the clicks are owed, and the map change that follows - the very event that makes the panel
+    // appear - must not be able to cancel them.
     private bool _rewardTaken;
     private DateTimeOffset? _rewardDueAt;
-    private int _rewardMap = int.MinValue;
+    private int _rewardRoom = int.MinValue;
+    private int _lastMapSeen = int.MinValue;
 
     // A destination that is not a waypoint, so the journey bookkeeping can tell it from one.
     private const int MonsterDestination = -2;
@@ -125,13 +128,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     /// </remarks>
     public async Task TickAsync(CancellationToken ct)
     {
-        // A new map is a new room, and the reward panel that belongs to the last one is gone.
-        if (_rewardMap != _state.CurrentMapId)
-        {
-            _rewardMap = _state.CurrentMapId;
-            _rewardTaken = false;
-            _rewardDueAt = null;
-        }
+        NoteMapChange();
 
         if (!_controller.IsRunning)
         {
@@ -144,6 +141,13 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         using var cycle = await _state.EnterCycleAsync(ct).ConfigureAwait(false);
 
         if (await TrySurviveAsync(ct).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // Ahead of the buffs, and of everything else that presses a key or clicks the map: while
+        // the reward panel is up, every one of those lands on a panel rather than on the game.
+        if (await TryTakeTheRewardAsync(ct).ConfigureAwait(false))
         {
             return;
         }
@@ -678,44 +682,121 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     }
 
     /// <summary>
-    /// Plays the recorded clicks that take the reward and close the instance.
+    /// Owes the reward clicks, from now plus the time the panel needs to appear.
     /// </summary>
+    /// <param name="why">What earned them, for the line the operator reads.</param>
+    /// <remarks>
+    /// Arming and firing are separate on purpose. Reaching the way out is a fact that is true for
+    /// one instant; the panel appears seconds later, and in between the character is teleported,
+    /// which clears the map, the entity table and the "room cleared" flag all at once. A sequence
+    /// re-decided from live state on every tick therefore looked, at the moment it was finally due,
+    /// like a bot standing on an unknown map with nothing cleared and no reason to click - and it
+    /// did nothing, which is exactly what was seen at the end of a run. Once armed, nothing short
+    /// of the clicks themselves disarms it.
+    /// </remarks>
+    private void ArmReward(string why)
+    {
+        if (_rewardTaken || _rewardDueAt is not null)
+        {
+            return;
+        }
+
+        _rewardDueAt = DateTimeOffset.UtcNow + _options.RewardDelay;
+        _rewardRoom = _state.CurrentMapId;
+
+        _logger.LogInformation
+        (
+            "Reward armed ({Why}); playing {Count} click(s) in {Seconds:0.#}s.",
+            why,
+            _options.RewardSequence.Count,
+            _options.RewardDelay.TotalSeconds
+        );
+    }
+
+    /// <summary>
+    /// Plays the recorded clicks that take the reward and close the instance, once they are due.
+    /// </summary>
+    /// <returns>True when the tick belongs to the reward.</returns>
     /// <remarks>
     /// Blind, and unavoidably so: the panel is drawn over the window and no packet mentions it. So
     /// the sequence waits for the panel to have had time to appear, plays once, and is judged by
-    /// what follows - the items arriving, and the map changing back. Once per room, because a second
-    /// run would click into whatever is on screen by then.
+    /// what follows - the items arriving, and the map changing back. The wait claims the tick
+    /// rather than yielding it: anything else the loop would do in those seconds is a key or a
+    /// click sent into a panel that swallows it.
     /// </remarks>
-    private async Task CollectTheRewardAsync(CancellationToken ct)
+    private async Task<bool> TryTakeTheRewardAsync(CancellationToken ct)
     {
-        if (_options.RewardSequence.Count == 0)
+        if (_rewardDueAt is not { } due || _rewardTaken)
         {
-            Decide(4, "instance : salle terminée, sur la sortie - aucun clic de récompense enregistré");
-            return;
+            return false;
         }
 
-        if (_rewardTaken)
-        {
-            Decide(4, "instance : récompense déjà prise, en attente de la sortie");
-            return;
-        }
+        var remaining = due - DateTimeOffset.UtcNow;
 
-        if (_rewardDueAt is null)
+        if (remaining > TimeSpan.Zero)
         {
-            _rewardDueAt = DateTimeOffset.UtcNow + _options.RewardDelay;
-            Decide(4, "instance : sur la sortie, on laisse {0:0.#}s au panneau pour s'afficher", _options.RewardDelay.TotalSeconds);
-            return;
-        }
-
-        if (DateTimeOffset.UtcNow < _rewardDueAt)
-        {
-            return;
+            Decide(1, "instance : récompense dans {0:0.#}s - on laisse le panneau s'afficher", remaining.TotalSeconds);
+            return true;
         }
 
         _rewardTaken = true;
-        Decide(4, "instance : récompense - {0} clic(s) enregistré(s)", _options.RewardSequence.Count);
+        _rewardDueAt = null;
+        Decide(1, "instance : récompense - {0} clic(s) enregistré(s)", _options.RewardSequence.Count);
 
-        await _actuator.ClickSequenceAsync(_options.RewardSequence.ToArray(), ct).ConfigureAwait(false);
+        await PlayRewardAsync(ct).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// Plays the recorded reward clicks straight away, whatever the loop is doing.
+    /// </summary>
+    /// <param name="ct">The cancellation token.</param>
+    /// <returns>True when every click was accepted by the window.</returns>
+    /// <remarks>
+    /// Exposed so the panel can be answered by hand. The clicks are the one part of a run nothing
+    /// confirms, so being able to play them on demand - panel on screen, nobody guessing - is what
+    /// tells apart coordinates that are wrong from a sequence that was never reached.
+    /// </remarks>
+    public Task<bool> PlayRewardAsync(CancellationToken ct = default)
+        => _options.RewardSequence.Count == 0
+            ? Task.FromResult(false)
+            : _actuator.ClickSequenceAsync(_options.RewardSequence.ToArray(), ct);
+
+    /// <summary>
+    /// Keeps the reward across the teleport that ends a room, and clears it on the next one.
+    /// </summary>
+    /// <remarks>
+    /// A map change means two opposite things depending on when it lands. Armed and not yet played,
+    /// it is the instance ending - the panel follows it, so the countdown is restarted from it
+    /// rather than thrown away. Already played, it is the way out of the instance, and the next
+    /// room gets its own reward.
+    /// </remarks>
+    private void NoteMapChange()
+    {
+        var map = _state.CurrentMapId;
+
+        if (map == _lastMapSeen)
+        {
+            return;
+        }
+
+        _lastMapSeen = map;
+
+        if (_rewardDueAt is not null && !_rewardTaken)
+        {
+            // The panel is drawn after the load, so the load is the honest anchor for the wait.
+            _rewardDueAt = DateTimeOffset.UtcNow + _options.RewardDelay;
+            _logger.LogInformation("Map changed while the reward was owed; the panel is expected just after the load.");
+            return;
+        }
+
+        // -1 is the gap between leaving a map and being told the next one, and is nobody's room.
+        if (_rewardTaken && map >= 0 && map != _rewardRoom)
+        {
+            _rewardTaken = false;
+            _rewardDueAt = null;
+            _rewardRoom = int.MinValue;
+        }
     }
 
     /// <summary>
@@ -788,17 +869,34 @@ public sealed class OrchestrationBackgroundService : BackgroundService
 
         if (_state.HasPosition && distance <= _options.WaypointArrivalRadius)
         {
-            await CollectTheRewardAsync(ct).ConfigureAwait(false);
+            if (_options.RewardSequence.Count == 0)
+            {
+                Decide(4, "instance : sur la sortie {0} - aucun clic de récompense enregistré", exit);
+                return;
+            }
+
+            if (_rewardTaken)
+            {
+                Decide(4, "instance : récompense déjà prise, en attente de la sortie");
+                return;
+            }
+
+            ArmReward($"exit waypoint {index + 1} reached");
+            Decide(4, "instance : arrivé sur la sortie {0} - récompense dans {1:0.#}s", exit, _options.RewardDelay.TotalSeconds);
             return;
         }
+
+        // Without a position, arriving cannot be noticed - so it has to be said, or the bot looks
+        // like it is ignoring a way out it is standing on.
+        var how = _state.HasPosition ? $"{distance} cases" : "position inconnue";
 
         if (!ShouldReissueWalk(index, position))
         {
-            Decide(4, "instance : salle terminée, en route vers la sortie {0}, {1} cases", exit, distance);
+            Decide(4, "instance : salle terminée, en route vers la sortie {0}, {1}", exit, how);
             return;
         }
 
-        Decide(4, "instance : salle terminée, direction la sortie {0}, {1} cases", exit, distance);
+        Decide(4, "instance : salle terminée, direction la sortie {0}, {1}", exit, how);
 
         if (!await _actuator.GoToWaypointAsync(index, ct).ConfigureAwait(false))
         {

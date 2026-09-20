@@ -85,7 +85,24 @@ public sealed class MainWindow : Window
 
     private readonly Button _adoptMap = new() { Width = 260, Height = 28 };
     private readonly Button _clearReward = new() { Content = "Effacer les clics", Width = 150, Height = 28 };
+    private readonly Button _playReward = new() { Name = "playReward", Content = "Jouer les clics maintenant", Width = 220, Height = 28 };
+    private readonly TextBlock _rewardStatus = new() { Name = "rewardStatus", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly StackPanel _rewardList = new() { Spacing = 2 };
+
+    private readonly NumericUpDown _rewardDelay = new()
+    {
+        Name = "rewardDelay",
+        Minimum = 0,
+        Maximum = 30,
+        Increment = 0.5m,
+        FormatString = "0.#",
+        Width = 90,
+        Height = 34,
+        FontSize = 15,
+        Padding = new Thickness(6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalContentAlignment = HorizontalAlignment.Center
+    };
 
     private readonly CheckBox _instanceMode = new()
     {
@@ -260,6 +277,17 @@ public sealed class MainWindow : Window
 
         _adoptMap.Click += (_, _) => AdoptCurrentMap();
         _clearReward.Click += (_, _) => { _recorder?.ClearUiPoints(); RefreshRoute(); };
+        _playReward.Click += (_, _) => PlayRewardNow();
+
+        _rewardDelay.Value = (decimal)_options.RewardDelay.TotalSeconds;
+        _rewardDelay.ValueChanged += (_, e) =>
+        {
+            if (e.NewValue is { } value)
+            {
+                _options.RewardDelay = TimeSpan.FromSeconds((double)value);
+                MarkDirty();
+            }
+        };
 
         _instanceMode.IsChecked = _options.InstanceMode;
         _instanceMode.IsCheckedChanged += (_, _) =>
@@ -1375,10 +1403,21 @@ public sealed class MainWindow : Window
             Ink
         ));
 
+        panel.Children.Add(Field("Attendre avant les clics (s)", _rewardDelay,
+            "le panneau met quelques secondes à s'afficher ; le délai repart du chargement de carte"));
+
         var rewardActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        rewardActions.Children.Add(_playReward);
         rewardActions.Children.Add(_clearReward);
+        rewardActions.Children.Add(_rewardStatus);
         panel.Children.Add(rewardActions);
         panel.Children.Add(_rewardList);
+
+        panel.Children.Add(Note
+        (
+            "« Jouer les clics maintenant » rejoue la séquence à l'instant, panneau à l'écran : "
+            + "c'est ce qui distingue des coordonnées fausses d'une séquence jamais déclenchée."
+        ));
 
         return panel;
     }
@@ -1462,6 +1501,59 @@ public sealed class MainWindow : Window
     /// buries the answer in the log. One click on demand settles in a second whether the point is
     /// right and whether the client reacts to clicks at all.
     /// </remarks>
+    /// <summary>
+    /// Plays the recorded reward clicks on demand, panel on screen.
+    /// </summary>
+    /// <remarks>
+    /// The one part of a run nothing confirms: the panel is drawn over the window and mentioned by
+    /// no packet, so a sequence that did nothing at the end of an instance leaves two explanations
+    /// and no way to choose between them - the coordinates were wrong, or they were never played.
+    /// Pressing this while the panel is up answers that in one click.
+    /// </remarks>
+    private async void PlayRewardNow()
+    {
+        if (_loop is null)
+        {
+            _rewardStatus.Text = "disponible en mode capture (--pcap)";
+            _rewardStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (_options.RewardSequence.Count == 0)
+        {
+            _rewardStatus.Text = "aucun clic enregistré : F9 puis F7/F8, F10 pour garder";
+            _rewardStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (_input is { IsLive: false })
+        {
+            _rewardStatus.Text = "passe en JOUE d'abord, sinon les clics ne sont que simulés";
+            _rewardStatus.Foreground = Blocked;
+            return;
+        }
+
+        _playReward.IsEnabled = false;
+        _rewardStatus.Text = $"{_options.RewardSequence.Count} clic(s) en cours...";
+        _rewardStatus.Foreground = Muted;
+
+        try
+        {
+            var sent = await _loop.PlayRewardAsync().ConfigureAwait(true);
+            _rewardStatus.Text = sent ? "séquence jouée - regarde le panneau" : "la fenêtre a refusé un clic";
+            _rewardStatus.Foreground = sent ? Ready : Blocked;
+        }
+        catch (Exception ex)
+        {
+            _rewardStatus.Text = ex.Message;
+            _rewardStatus.Foreground = Blocked;
+        }
+        finally
+        {
+            _playReward.IsEnabled = true;
+        }
+    }
+
     private void TestClick()
     {
         if (_input is null)

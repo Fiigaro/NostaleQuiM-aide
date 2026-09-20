@@ -128,6 +128,31 @@ public static class SelfTest
             }
         }
 
+        // Le délai avant les clics de récompense doit atteindre les options en direct.
+        var rewardDelayEdits = false;
+        if (numbers.FirstOrDefault(n => n.Name == "rewardDelay") is { } delayBox)
+        {
+            var before = options.RewardDelay;
+            delayBox.Value = (decimal)before.TotalSeconds + 2;
+            Dispatcher.UIThread.RunJobs();
+            rewardDelayEdits = options.RewardDelay != before;
+            delayBox.Value = (decimal)before.TotalSeconds;
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // Et le bouton qui rejoue la séquence doit dire ce qu'il a fait - ou pourquoi il n'a rien
+        // fait. Un bouton qui ne répond rien est ce qui a déjà été signalé comme « ne sert à rien ».
+        var rewardPlaysOnDemand = false;
+        var rewardStatus = visuals.OfType<TextBlock>().FirstOrDefault(t => t.Name == "rewardStatus");
+
+        if (rewardStatus is not null
+            && visuals.OfType<Button>().FirstOrDefault(b => b.Name == "playReward") is { } playButton)
+        {
+            var silentBefore = string.IsNullOrWhiteSpace(rewardStatus.Text);
+            Click(playButton);
+            rewardPlaysOnDemand = silentBefore && !string.IsNullOrWhiteSpace(rewardStatus.Text);
+        }
+
         // Cocher le mode instance doit atteindre les options en direct, comme toute autre case.
         var instanceToggles = false;
         var instanceBox = boxes.FirstOrDefault(b => (b.Content as string)?.Contains("instance") == true);
@@ -239,6 +264,15 @@ public static class SelfTest
             // Les clics de récompense n'ont aucune trace dans les paquets : s'ils ne sont pas
             // listés dans la fenêtre, rien ne dit qu'ils existent ni ce qu'ils vont faire.
             ("clics de recompense listes", texts.Any(t => t.Contains("F7")) && RewardSequenceReadsBack()),
+
+            // Le panneau met quelques secondes à s'afficher et personne ne sait combien d'avance :
+            // le délai se règle donc depuis la fenêtre, pas dans le JSON.
+            ("delai de recompense reglable", rewardDelayEdits),
+
+            // Rien dans les paquets ne dit si le panneau a été cliqué. Pouvoir rejouer la séquence
+            // à la main, panneau à l'écran, est ce qui sépare « coordonnées fausses » de « jamais
+            // déclenché » - et le bouton doit répondre quelque chose, jamais rester muet.
+            ("les clics de recompense se rejouent a la main", rewardPlaysOnDemand),
 
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.

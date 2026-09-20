@@ -75,6 +75,7 @@ public static class BotReadiness
         if (options.InstanceMode)
         {
             items.Add(Instance(options, state));
+            items.Add(Reward(options));
         }
 
         if (input is not null)
@@ -179,6 +180,25 @@ public static class BotReadiness
             $"en cours, sortie = waypoint {exit + 1} {options.Waypoints[exit]}"
         );
     }
+
+    /// <summary>
+    /// The end-of-instance clicks, which nothing in the protocol can confirm.
+    /// </summary>
+    /// <remarks>
+    /// The reward panel is drawn over the window and mentioned by no packet, so an empty sequence
+    /// fails in the quietest way there is: the run finishes, the panel opens, and the bot stands in
+    /// front of it doing nothing. Saying so before the run is the only warning available.
+    /// </remarks>
+    private static ReadinessItem Reward(BotOptions options)
+        => options.RewardSequence.Count == 0
+            ? new ReadinessItem("Récompense", false, "aucun clic enregistré : le panneau de fin ne sera pas cliqué")
+            : new ReadinessItem
+            (
+                "Récompense",
+                true,
+                $"{options.RewardSequence.Count} clic(s), joués {options.RewardDelay.TotalSeconds:0.#}s "
+                + "après la sortie (ou après le chargement de carte qui suit)"
+            );
 
     private static ReadinessItem ClickMode(BotOptions options, SwitchableGameInput input)
     {

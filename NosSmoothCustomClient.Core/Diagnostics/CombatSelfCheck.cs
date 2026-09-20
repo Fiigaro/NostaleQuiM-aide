@@ -62,7 +62,9 @@ public static class CombatSelfCheck
             await TheExitIsNotAStopOnTheRoundAsync().ConfigureAwait(false),
             await DistantMonstersAreWalkedToAsync().ConfigureAwait(false),
             await TheRoundIsWalkedInOrderAsync().ConfigureAwait(false),
-            await TheRewardIsTakenOnceAsync().ConfigureAwait(false)
+            await TheRewardIsTakenOnceAsync().ConfigureAwait(false),
+            await TheRewardSurvivesTheTeleportAsync().ConfigureAwait(false),
+            await TheRewardOutranksEverythingElseAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -490,6 +492,74 @@ public static class CombatSelfCheck
         var armedAgain = actuator.Calls.Contains("ui:tirage");
 
         return ("la récompense est prise une fois par salle", waited && played && onlyOnce && armedAgain);
+    }
+
+    private static async Task<(string, bool)> TheRewardSurvivesTheTeleportAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.RouteMapId = 4103;
+        options.RewardDelay = TimeSpan.FromMilliseconds(80);
+        options.RewardSequence = new List<UiPoint>
+        {
+            new("tirage", 467, 460, DoubleClick: true, WaitAfterMs: 0),
+            new("confirmer", 509, 571, WaitAfterMs: 0)
+        };
+
+        state.MarkRoomCleared();
+        state.UpdatePosition(14, 1);
+
+        // Standing on the way out: the clicks are owed from here on.
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // And then the instance ends, which is the whole difficulty: stepping onto the portal
+        // teleports the character out, and the packets that follow clear the map, the entity table
+        // and the "room cleared" flag - several seconds before the panel is drawn. A reward decided
+        // from live state at the moment it comes due therefore sees a bot on the wrong map with
+        // nothing cleared and no route that applies, and clicks nothing at all.
+        state.EnterMap(-1);
+        state.EnterMap(2628);
+
+        // The panel is drawn after the load, so the load restarts the wait rather than cancelling
+        // it: this tick is still owed the clicks, and still holds them.
+        await Task.Delay(120).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var reanchored = !actuator.Calls.Any(c => c.StartsWith("ui:", StringComparison.Ordinal));
+
+        await Task.Delay(120).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        var played = reanchored
+                     && actuator.Calls.Contains("ui:tirage")
+                     && actuator.Calls.Contains("ui:confirmer");
+        var despiteTheState = !state.RoomCleared && !options.RouteAppliesOnMap(state.CurrentMapId);
+
+        return ("la récompense survit au téléport de fin", played && despiteTheState);
+    }
+
+    private static async Task<(string, bool)> TheRewardOutranksEverythingElseAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.RewardDelay = TimeSpan.FromMilliseconds(80);
+        options.SearchInterval = TimeSpan.Zero;
+        options.RewardSequence = new List<UiPoint> { new("tirage", 467, 460, DoubleClick: true, WaitAfterMs: 0) };
+
+        state.MarkRoomCleared();
+        state.UpdatePosition(14, 1);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // Out of the instance, panel not yet drawn. The room is no longer cleared, so engagement is
+        // free to ask the game for a target again - and that ask is a keypress, sent into a panel
+        // that swallows it, on the one tick where the only thing worth doing is waiting.
+        state.EnterMap(2628);
+        actuator.Calls.Clear();
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        var heldTheTick = actuator.Calls.Count == 0;
+
+        await Task.Delay(120).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        return ("rien ne passe devant la récompense", heldTheTick && actuator.Calls.Contains("ui:tirage"));
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()
