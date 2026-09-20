@@ -211,8 +211,8 @@ public sealed class MainWindow : Window
         _mode = mode;
 
         Title = "NosSmoothCustomClient";
-        Width = 880;
-        Height = 760;
+        Width = 920;
+        Height = 800;
         MinWidth = 640;
         MinHeight = 460;
         Background = new SolidColorBrush(Color.Parse("#141517"));
@@ -541,36 +541,98 @@ public sealed class MainWindow : Window
         _logScroll.ScrollToEnd();
     }
 
+    /// <summary>
+    /// Lays the window out: what is always true on top, everything else behind a tab.
+    /// </summary>
+    /// <remarks>
+    /// One column of ten sections meant scrolling past a room's settings to reach a farming one,
+    /// and reading both to find out which was in force. The two jobs are separate, so they are
+    /// separate here. What stays on top is only what is true whichever of them is running - what
+    /// the character is worth, and what the loop just decided - because those are the two things
+    /// worth glancing at without looking for them.
+    /// </remarks>
     private Control BuildLayout()
     {
-        var grid = new Grid
+        var root = new Grid
         {
             Margin = new Thickness(14),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto")
+            RowDefinitions = new RowDefinitions("Auto,Auto,*")
         };
 
-        grid.Children.Add(Place(BuildHeader(), 0));
-        grid.Children.Add(Place(BuildVitals(), 1));
-        grid.Children.Add(Place(BuildInfo(), 2));
-        grid.Children.Add(Place(Section("Ce que le bot peut faire", BuildReadinessSection()), 3));
-        grid.Children.Add(Place(Section("Touches", BuildKeySection()), 4));
-        grid.Children.Add(Place(Section("Rotation", BuildSkillSection()), 5));
-        grid.Children.Add(Place(Section("Buffs", BuildBuffSection()), 6));
-        grid.Children.Add(Place(Section("Route de patrouille", BuildRouteSection()), 7));
-        grid.Children.Add(Place(Section("Enregistrer une run (F11)", BuildRunSection()), 8));
-        grid.Children.Add(Place(Section("Journal", _logScroll), 9));
-
-        return new ScrollViewer
+        root.Children.Add(Place(BuildHeader(), 0));
+        root.Children.Add(Place(new StackPanel
         {
-            Content = grid,
-            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
-        };
+            Spacing = 0,
+            Children = { BuildVitals(), BuildDecision() }
+        }, 1));
+
+        var tabs = new TabControl { Margin = new Thickness(0, 6, 0, 0) };
+
+        tabs.Items.Add(Tab("Vue d'ensemble", new StackPanel
+        {
+            Spacing = 0,
+            Children =
+            {
+                BuildInfo(),
+                Section("Ce que le bot peut faire", BuildReadinessSection())
+            }
+        }));
+
+        tabs.Items.Add(Tab("Combat", new StackPanel
+        {
+            Spacing = 0,
+            Children =
+            {
+                Section("Touches", BuildKeySection()),
+                Section("Rotation", BuildSkillSection()),
+                Section("Buffs", BuildBuffSection())
+            }
+        }));
+
+        tabs.Items.Add(Tab("Farm", new StackPanel
+        {
+            Spacing = 0,
+            Children =
+            {
+                Section("Route de patrouille", BuildRouteSection()),
+                Section("Clics", BuildClickSection())
+            }
+        }));
+
+        tabs.Items.Add(Tab("Espace-temps", Section("Salle d'instance", BuildInstanceSection())));
+
+        tabs.Items.Add(Tab("Journal", new StackPanel
+        {
+            Spacing = 0,
+            Children =
+            {
+                Section("Enregistrer une run (F11)", BuildRunSection()),
+                Section("Journal", _logScroll)
+            }
+        }));
+
+        Grid.SetRow(tabs, 2);
+        root.Children.Add(tabs);
+
+        return root;
     }
+
+    private static TabItem Tab(string header, Control content)
+        => new()
+        {
+            Header = header,
+            Content = new ScrollViewer
+            {
+                Content = content,
+                Padding = new Thickness(0, 10, 8, 0),
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+            }
+        };
 
     private Control BuildHeader()
     {
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto") };
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto,Auto") };
 
         var title = new StackPanel { Spacing = 2 };
         title.Children.Add(Label("NosSmoothCustomClient", 17, FontWeight.Bold));
@@ -596,17 +658,57 @@ public sealed class MainWindow : Window
         _status.Margin = new Thickness(0, 0, 12, 0);
 
         _live.Margin = new Thickness(0, 0, 8, 0);
+        _save.Margin = new Thickness(0, 0, 8, 0);
+        _save.Height = 32;
 
+        // Saving applies to every tab, so it belongs with the things that are always true rather
+        // than at the bottom of whichever section happened to hold it.
         Grid.SetColumn(title, 0);
-        Grid.SetColumn(_status, 1);
-        Grid.SetColumn(_live, 2);
-        Grid.SetColumn(_toggle, 3);
+        Grid.SetColumn(_saveStatus, 1);
+        Grid.SetColumn(_save, 2);
+        Grid.SetColumn(_status, 3);
+        Grid.SetColumn(_live, 4);
+        Grid.SetColumn(_toggle, 5);
         row.Children.Add(title);
+        row.Children.Add(_saveStatus);
+        row.Children.Add(_save);
         row.Children.Add(_status);
         row.Children.Add(_live);
         row.Children.Add(_toggle);
 
         return new Border { Child = row, Margin = new Thickness(0, 0, 0, 12) };
+    }
+
+    private Control BuildDecision()
+    {
+        // What the loop just decided, on top and never behind a tab. Every "the bot does nothing"
+        // in this project turned out to be the loop deciding, correctly and quietly, not to act -
+        // and this is the one line that says so without being looked for.
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+
+        var label = new TextBlock
+        {
+            Text = "EN TRAIN DE",
+            Foreground = Muted,
+            FontSize = 10,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 0, 12, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(_decision, 1);
+        row.Children.Add(label);
+        row.Children.Add(_decision);
+
+        return new Border
+        {
+            Child = row,
+            Background = Panel,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 9),
+            Margin = new Thickness(0, 0, 0, 4)
+        };
     }
 
     private Control BuildVitals()
@@ -622,7 +724,7 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
             Margin = new Thickness(0, 2, 0, 0)
         };
 
@@ -631,8 +733,6 @@ public sealed class MainWindow : Window
         AddCell(grid, 1, 0, "Cible", _target);
         AddCell(grid, 1, 2, "Entités", _entities);
         AddCell(grid, 2, 0, "Waypoint", _waypoint);
-        AddCell(grid, 3, 0, "En train de", _decision);
-        Grid.SetColumnSpan(_decision, 3);
 
         return Section("État", grid);
     }
@@ -772,8 +872,6 @@ public sealed class MainWindow : Window
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         actions.Children.Add(_resetBuffs);
-        actions.Children.Add(_save);
-        actions.Children.Add(_saveStatus);
         panel.Children.Add(actions);
 
         return panel;
@@ -830,6 +928,40 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0, 0, 12, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+
+    private static Control Field(string label, Control editor, string? hint = null)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+
+        row.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = Muted,
+            FontSize = 11.5,
+            Width = 230,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        row.Children.Add(editor);
+
+        if (hint is not null)
+        {
+            row.Children.Add(Note(hint));
+        }
+
+        return row;
+    }
+
+    private static TextBlock Heading(string text)
+        => new()
+        {
+            Text = text.ToUpperInvariant(),
+            Foreground = Muted,
+            FontSize = 10,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 6, 0, 0)
         };
 
     private static TextBlock Note(string text, IBrush? foreground = null)
@@ -1152,18 +1284,18 @@ public sealed class MainWindow : Window
     {
         var panel = new StackPanel { Spacing = 10 };
 
-        // The section needed explaining in the window rather than only in the docs: a waypoint
-        // carries two coordinate systems for reasons that are not obvious from a list of numbers.
+        // A waypoint carries two coordinate systems for reasons that are not obvious from a list of
+        // numbers, so the panel says which does what.
         panel.Children.Add(Note
         (
-            "Le trajet parcouru quand il n'y a plus rien à taper. Le bot clique sur la minimap "
-            + "pour aller au point suivant, et sait qu'il est arrivé grâce à sa position réelle."
+            "Le trajet parcouru quand il n'y a plus rien à taper. Le bot clique sur la minimap pour "
+            + "aller au point suivant, et sait qu'il est arrivé grâce à sa position réelle."
         ));
 
         panel.Children.Add(Note
         (
             "Ajouter un point : place ton personnage à l'endroit voulu → arme F9 → vise ce même "
-            + "endroit sur la minimap dans NosTale → presse F9.",
+            + "endroit sur la minimap dans NosTale → presse F9. F10 enregistre.",
             Ink
         ));
 
@@ -1171,81 +1303,82 @@ public sealed class MainWindow : Window
         actions.Children.Add(_arm);
         actions.Children.Add(_saveRoute);
         actions.Children.Add(_clearRoute);
-        actions.Children.Add(_testClick);
-        actions.Children.Add(_probeClick);
-        actions.Children.Add(_useProbed);
         actions.Children.Add(_routeStatus);
-
         panel.Children.Add(actions);
 
         panel.Children.Add(_adoptMap);
-
-        var instance = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        instance.Children.Add(_instanceMode);
-        instance.Children.Add(new TextBlock
-        {
-            Text = "sortie = waypoint n°",
-            Foreground = Muted,
-            FontSize = 11.5,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-
-        instance.Children.Add(_exitWaypoint);
-        panel.Children.Add(instance);
-
-        var dwell = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        dwell.Children.Add(new TextBlock
-        {
-            Text = "Passer au point suivant après (s)",
-            Foreground = Muted,
-            FontSize = 11.5,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-
-        dwell.Children.Add(_repositionAfter);
-        panel.Children.Add(dwell);
-
-        panel.Children.Add(Note
-        (
-            "En mode instance les points sont une tournée : le bot tient chacun tant que des "
-            + "monstres y tombent, puis passe au suivant dans l'ordre. La sortie n'en fait pas "
-            + "partie — elle est prise quand le serveur annonce la salle finie."
-        ));
-
-        var radius = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        radius.Children.Add(new TextBlock
-        {
-            Text = "Rayon d'arrivée (cases)",
-            Foreground = Muted,
-            FontSize = 11.5,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-
-        radius.Children.Add(_arrivalRadius);
-        radius.Children.Add(Note("un clic minimap est imprécis ; trop petit, le bot n'arrive jamais"));
-        panel.Children.Add(radius);
+        panel.Children.Add(Field("Rayon d'arrivée (cases)", _arrivalRadius,
+            "un clic minimap est imprécis ; trop petit, le bot n'arrive jamais"));
 
         panel.Children.Add(_routeList);
+        return panel;
+    }
+
+    private Control BuildClickSection()
+    {
+        var panel = new StackPanel { Spacing = 10 };
 
         panel.Children.Add(Note
         (
-            "Fin de salle : le panneau de récompense n'est annoncé par aucun paquet, donc ses clics "
-            + "s'enregistrent à la main. Arme F9, puis vise dans le jeu et presse F7 pour un "
-            + "double-clic (la case à tirer) ou F8 pour un clic simple (Confirm). Ils sont rejoués "
-            + "dans l'ordre une fois la sortie atteinte."
+            "Comment les clics atteignent le jeu. Les messages postés laissent la souris libre et "
+            + "fonctionnent fenêtre en arrière-plan ; le vrai curseur ne peut pas être ignoré mais "
+            + "prend la main sur la machine. Le bot bascule seul si les premiers ne font rien."
+        ));
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        actions.Children.Add(_testClick);
+        actions.Children.Add(_probeClick);
+        actions.Children.Add(_useProbed);
+        panel.Children.Add(actions);
+
+        panel.Children.Add(Note
+        (
+            "« Sonder » essaie une fenêtre du client par pression : regarde le personnage, et garde "
+            + "celle qui le fait partir. Une fenêtre qui accepte les clics postés rend le bot "
+            + "utilisable en arrière-plan, et plusieurs comptes menables en parallèle.",
+            Ink
+        ));
+
+        return panel;
+    }
+
+    private Control BuildInstanceSection()
+    {
+        var panel = new StackPanel { Spacing = 12 };
+
+        panel.Children.Add(Note
+        (
+            "Une salle d'instance ne se patrouille pas, elle se balaie. Le bot tient chaque point "
+            + "tant que des monstres y tombent, puis passe au suivant dans l'ordre. La sortie ne "
+            + "fait pas partie de la tournée : elle est prise quand le serveur annonce la salle "
+            + "terminée, ce qu'aucun compte de monstres ne peut dire à sa place."
+        ));
+
+        var toggles = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        toggles.Children.Add(_instanceMode);
+        panel.Children.Add(toggles);
+
+        panel.Children.Add(Field("Waypoint de sortie (n°)", _exitWaypoint, "le portail de fin, enregistré en dernier"));
+        panel.Children.Add(Field("Passer au point suivant après (s)", _repositionAfter, "sans rien qui tombe"));
+
+        panel.Children.Add(Heading("Récompense de fin"));
+        panel.Children.Add(Note
+        (
+            "Le panneau de récompense n'est annoncé par aucun paquet : ses clics s'enregistrent à "
+            + "la main et sont rejoués dans l'ordre, une fois la sortie atteinte."
+        ));
+
+        panel.Children.Add(Note
+        (
+            "Arme F9, puis dans le jeu : F7 sur la case à tirer (double-clic), F8 sur Confirm "
+            + "(clic simple). F10 enregistre.",
+            Ink
         ));
 
         var rewardActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         rewardActions.Children.Add(_clearReward);
         panel.Children.Add(rewardActions);
         panel.Children.Add(_rewardList);
-
-        if (_recorder is null)
-        {
-            _arm.IsEnabled = false;
-            _saveRoute.IsEnabled = false;
-            _routeStatus.Text = "enregistrement disponible en mode capture (--pcap)";
-        }
 
         return panel;
     }

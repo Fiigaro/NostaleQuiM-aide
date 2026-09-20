@@ -52,7 +52,10 @@ public static class SelfTest
         window.Refresh();
         Dispatcher.UIThread.RunJobs();
 
-        var visuals = window.GetVisualDescendants().ToList();
+        // A tab only builds its contents when it is shown, so the window has to be walked tab by
+        // tab. That is worth doing rather than working around: every tab being asked to render is
+        // the check, not an obstacle to it.
+        var visuals = Realise(window);
         var texts = visuals.OfType<TextBlock>().Select(t => t.Text ?? string.Empty).ToList();
         var boxes = visuals.OfType<CheckBox>().ToList();
         var numbers = visuals.OfType<NumericUpDown>().ToList();
@@ -147,9 +150,11 @@ public static class SelfTest
             options.Waypoints = new List<Waypoint> { new(10, 10, 100, 100), new(20, 20, 200, 200) };
 
             Click(clearButton);
+
+            // Re-walked, because the list lives on a tab and a tab that is not shown has nothing
+            // to read.
             clearWorks = options.Waypoints.Count == 0
-                         && texts.Count > 0
-                         && window.GetVisualDescendants().OfType<TextBlock>()
+                         && Realise(window).OfType<TextBlock>()
                              .Any(t => (t.Text ?? string.Empty).Contains("aucun point"));
 
             options.Waypoints = before;
@@ -202,6 +207,17 @@ public static class SelfTest
             // exister : une ligne rouge sans raison ne vaut pas mieux que le silence.
             ("diagnostic rendu", texts.Any(t => t.Contains("Cibler et attaquer"))),
 
+            // Les deux métiers sont séparés : chercher un réglage de salle au milieu des réglages
+            // de farm, c'est devoir lire les deux pour savoir lequel s'applique.
+            ("onglets separes", TabsAreSeparate(window)),
+
+            // Enregistrer s'applique à tous les onglets, donc il ne peut pas vivre au fond de l'un
+            // d'eux : un réglage changé dans « Espace-temps » se sauve depuis « Espace-temps ».
+            ("enregistrer est toujours accessible", SaveStaysOnTop(window)),
+
+            // Et ce que la boucle vient de décider reste visible quel que soit l'onglet ouvert.
+            ("la decision reste visible", DecisionStaysOnTop(window)),
+
             // Un échec de liaison doit se lire à l'écran : sortir avant que la fenêtre existe ne
             // laisse rien pour l'afficher, et c'est exactement ce qui se lit comme « ça ne marche
             // plus » sans explication.
@@ -217,7 +233,7 @@ public static class SelfTest
 
             // Le mode instance doit être réglable depuis la fenêtre, sinon il faut éditer le JSON
             // pour désigner le portail - ce qui est exactement ce qu'on cherche à éviter.
-            ("mode instance reglable", texts.Any(t => t.Contains("sortie = waypoint")) && instanceToggles),
+            ("mode instance reglable", texts.Any(t => t.Contains("Waypoint de sortie")) && instanceToggles),
 
             // Les clics de récompense n'ont aucune trace dans les paquets : s'ils ne sont pas
             // listés dans la fenêtre, rien ne dit qu'ils existent ni ce qu'ils vont faire.
@@ -326,6 +342,111 @@ public static class SelfTest
 
         window.Close();
         return shown && hasHelp;
+    }
+
+    /// <summary>
+    /// Shows every tab in turn and collects everything the window can draw.
+    /// </summary>
+    private static bool SaveStaysOnTop(Window window)
+    {
+        var tabs = window.GetVisualDescendants().OfType<TabControl>().FirstOrDefault();
+        if (tabs is null)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < tabs.ItemCount; index++)
+        {
+            tabs.SelectedIndex = index;
+            Dispatcher.UIThread.RunJobs();
+
+            if (!window.GetVisualDescendants().OfType<Button>()
+                    .Any(b => (b.Content as string)?.Contains("Enregistrer les réglages") == true))
+            {
+                return false;
+            }
+        }
+
+        tabs.SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        return true;
+    }
+
+    private static bool TabsAreSeparate(Window window)
+    {
+        var tabs = window.GetVisualDescendants().OfType<TabControl>().FirstOrDefault();
+        if (tabs is null)
+        {
+            return false;
+        }
+
+        var headers = tabs.Items.OfType<TabItem>().Select(t => t.Header as string ?? string.Empty).ToList();
+        return headers.Contains("Farm") && headers.Contains("Espace-temps") && headers.Contains("Combat");
+    }
+
+    private static bool DecisionStaysOnTop(Window window)
+    {
+        var tabs = window.GetVisualDescendants().OfType<TabControl>().FirstOrDefault();
+        if (tabs is null)
+        {
+            return false;
+        }
+
+        // On every tab, not just the one that happens to be open: a line that disappears when you
+        // go looking at settings is a line you cannot use while changing them.
+        for (var index = 0; index < tabs.ItemCount; index++)
+        {
+            tabs.SelectedIndex = index;
+            Dispatcher.UIThread.RunJobs();
+
+            if (!window.GetVisualDescendants().OfType<TextBlock>()
+                    .Any(t => (t.Text ?? string.Empty).Contains("EN TRAIN DE")))
+            {
+                return false;
+            }
+        }
+
+        tabs.SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        return true;
+    }
+
+    private static List<Visual> Realise(Window window)
+    {
+        var all = new List<Visual>();
+        var seen = new HashSet<Visual>();
+
+        void Collect()
+        {
+            Dispatcher.UIThread.RunJobs();
+
+            foreach (var visual in window.GetVisualDescendants())
+            {
+                if (seen.Add(visual))
+                {
+                    all.Add(visual);
+                }
+            }
+        }
+
+        Collect();
+
+        var tabs = all.OfType<TabControl>().FirstOrDefault();
+        if (tabs is null)
+        {
+            return all;
+        }
+
+        for (var index = 0; index < tabs.ItemCount; index++)
+        {
+            tabs.SelectedIndex = index;
+            Collect();
+        }
+
+        tabs.SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+
+        return all;
     }
 
     private static void Click(Button button)
