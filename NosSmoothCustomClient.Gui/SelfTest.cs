@@ -11,6 +11,7 @@ using NosSmoothCustomClient.State;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NosSmooth.PacketSerializer.Abstractions.Attributes;
 
 namespace NosSmoothCustomClient.Gui;
 
@@ -255,6 +256,55 @@ public static class SelfTest
             options.Waypoints = before;
         }
 
+        // Un champ de filtre qui ne descend pas dans le filtre vivant, c'est une trace qu'on croit
+        // avoir réduite et qui continue de défiler.
+        var filterNarrows = false;
+        var filter = services.GetRequiredService<PacketFilter>();
+
+        if (visuals.OfType<TextBox>().FirstOrDefault(b => b.Name == "filterOnly") is { } onlyBox)
+        {
+            var before = filter.Only;
+            onlyBox.Text = "sr";
+            Dispatcher.UIThread.RunJobs();
+            filterNarrows = filter.Only == "sr";
+
+            onlyBox.Text = before;
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // La vue doit contenir ce que le transport a vraiment porté, et une ligne doit pouvoir
+        // repartir : lire une trame pour la rejouer est tout l'intérêt de l'onglet.
+        var packetsListed = false;
+        var packetCopies = false;
+        var sendAnswers = false;
+
+        var packetList = visuals.OfType<ListBox>().FirstOrDefault(l => l.Name == "packetList");
+        var sendBody = visuals.OfType<TextBox>().FirstOrDefault(b => b.Name == "sendBody");
+        var sendStatus = visuals.OfType<TextBlock>().FirstOrDefault(t => t.Name == "sendStatus");
+
+        if (packetList is not null && sendBody is not null)
+        {
+            packetsListed = packetList.ItemCount > 0;
+
+            if (packetsListed)
+            {
+                sendBody.Text = string.Empty;
+                packetList.SelectedIndex = 0;
+                Dispatcher.UIThread.RunJobs();
+                packetCopies = !string.IsNullOrWhiteSpace(sendBody.Text);
+            }
+
+            // Et un envoi vide doit dire qu'il est vide, jamais rester muet.
+            if (sendStatus is not null
+                && visuals.OfType<Button>().FirstOrDefault(b => b.Name == "sendGo") is { } sendButton)
+            {
+                sendBody.Text = string.Empty;
+                sendStatus.Text = string.Empty;
+                Click(sendButton);
+                sendAnswers = !string.IsNullOrWhiteSpace(sendStatus.Text);
+            }
+        }
+
         var (savedPath, saveError) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
         var saveWorks = savedPath is not null && File.Exists(savedPath);
         if (savedPath is not null)
@@ -362,6 +412,22 @@ public static class SelfTest
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
             // invisible : sinon le bouton ne se distingue pas d'un bouton mort.
             ("effacer vide la route en cours", clearWorks),
+            // Un en-tête mal lu, c'est un filtre qui rate exactement les trames qu'on lui a
+            // désignées : la trame sortante porte un numéro de séquence devant elle, et les
+            // trames d'interface s'écrivent avec des accents circonflexes.
+            ("les en-tetes sont lus", HeadersAreRead()),
+            ("le filtre garde et jette", FilterKeepsAndDrops()),
+            ("le filtre atteint la trace en direct", filterNarrows),
+            ("les paquets captures sont listes", packetsListed),
+            ("une ligne se recopie dans l'envoi", packetCopies),
+            ("le bouton d'envoi repond toujours", sendAnswers),
+
+            // Le coeur de l'affaire : demander quatre fois doit envoyer quatre fois, et chaque
+            // envoi doit se retrouver dans la trace - un compteur seul décrirait aussi bien une
+            // boucle qui n'a rien émis.
+            ("envoyer repete vraiment", RepeatsWhatItIsGiven()),
+            ("filtre et envois gardes se relisent", TraceSettingsReadBack()),
+
             ("diagnostic explique les blocages", BotReadiness.Describe(options, state, null)
                 .Where(i => !i.Ready)
                 .All(i => !string.IsNullOrWhiteSpace(i.Detail) && texts.Contains(i.Detail)))
@@ -468,6 +534,100 @@ public static class SelfTest
                && reloaded.RewardSequence[1].Y == 571;
     }
 
+    private static bool HeadersAreRead()
+        => PacketFilter.HeaderOf("u_i 1 123 0 3 0") == "u_i"
+           && PacketFilter.HeaderOf("1043 walk 55 60 0 11") == "walk"
+           && PacketFilter.HeaderOf("#guri^710^1^1") == "guri"
+           && PacketFilter.HeaderOf("gp") == "gp"
+           && PacketFilter.HeaderOf("   ") == string.Empty;
+
+    private static bool FilterKeepsAndDrops()
+    {
+        var filter = new PacketFilter(new PacketTraceSettings());
+
+        // Par défaut : le bruit de fond part, le reste passe.
+        var byDefault = filter.Allows(PacketSource.Server, "sr 3")
+                        && !filter.Allows(PacketSource.Server, "mv 1 2 3 4");
+
+        // Nommer un en-tête l'emporte sur la liste du bruit : c'est une demande explicite.
+        filter.Only = "mv";
+        var named = filter.Allows(PacketSource.Server, "mv 1 2 3 4")
+                    && !filter.Allows(PacketSource.Server, "sr 3");
+
+        filter.ShowEverything();
+        var everything = filter.Allows(PacketSource.Server, "mv 1 2 3 4")
+                         && filter.Allows(PacketSource.Client, "walk 55 60 0 11");
+
+        filter.ShowOutgoing = false;
+        var oneWay = filter.Allows(PacketSource.Server, "mv 1 2 3 4")
+                     && !filter.Allows(PacketSource.Client, "walk 55 60 0 11");
+
+        filter.ShowOutgoing = true;
+        filter.Search = "710";
+        var searched = filter.Allows(PacketSource.Client, "#guri^710^1^1")
+                       && !filter.Allows(PacketSource.Client, "#guri^711^1^1");
+
+        return byDefault && named && everything && oneWay && searched;
+    }
+
+    private static bool RepeatsWhatItIsGiven()
+    {
+        var sender = _services!.GetRequiredService<ManualSender>();
+        var log = _services!.GetRequiredService<PacketLog>();
+
+        // Sur un thread à part : la passe headless tient le contexte de l'UI, et attendre dessus
+        // ce qui y reviendrait bloquerait les deux.
+        var outcome = Task
+            .Run(() => sender.RunAsync(new SendMacro("essai", SendKind.PacketToServer, "pulse {i}", 4, 0)))
+            .GetAwaiter()
+            .GetResult();
+
+        var recorded = log.Snapshot().Select(l => l.Packet).ToList();
+
+        return outcome.Complete
+               && outcome.Sent == 4
+               && outcome.Requested == 4
+               && recorded.Contains("pulse 1")
+               && recorded.Contains("pulse 4");
+    }
+
+    private static bool TraceSettingsReadBack()
+    {
+        var options = new BotOptions
+        {
+            SendMacros = new List<SendMacro>
+            {
+                new("Améliorer la SP", SendKind.PacketToServer, "u_i 1 {i} 0 3 0", 25, 900)
+            }
+        };
+
+        options.PacketTrace.Only = "u_i guri";
+        options.PacketTrace.Hide = string.Empty;
+        options.PacketTrace.ShowIncoming = false;
+
+        var (path, _) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
+        if (path is null)
+        {
+            return false;
+        }
+
+        var reloaded = ReadBack(path);
+        File.Delete(path);
+
+        // Une liste vidée à la main doit revenir vide, pas revenir au défaut : c'est exactement
+        // comme ça qu'on redemande le flux brut.
+        return reloaded.PacketTrace.Only == "u_i guri"
+               && reloaded.PacketTrace.Hide == string.Empty
+               && !reloaded.PacketTrace.ShowIncoming
+               && reloaded.PacketTrace.ShowOutgoing
+               && reloaded.SendMacros.Count == 1
+               && reloaded.SendMacros[0].Name == "Améliorer la SP"
+               && reloaded.SendMacros[0].Kind == SendKind.PacketToServer
+               && reloaded.SendMacros[0].Repetitions == 25
+               && reloaded.SendMacros[0].IntervalMs == 900
+               && reloaded.SendMacros[0].Body.Contains("u_i");
+    }
+
     private static bool RunEventReadsBack()
     {
         // A recorded action has to survive the round trip to the file and still say where it was
@@ -561,7 +721,10 @@ public static class SelfTest
         }
 
         var headers = tabs.Items.OfType<TabItem>().Select(t => t.Header as string ?? string.Empty).ToList();
-        return headers.Contains("Farm") && headers.Contains("Espace-temps") && headers.Contains("Combat");
+        return headers.Contains("Farm")
+               && headers.Contains("Espace-temps")
+               && headers.Contains("Combat")
+               && headers.Contains("Paquets");
     }
 
     private static bool DecisionStaysOnTop(Window window)

@@ -46,6 +46,8 @@ public static class Program
             return 2;
         }
 
+        BotServiceRegistration.ApplyTraceFilter(host.Services, cli);
+
         App.Services = host.Services;
         App.Mode = cli.Mode;
 

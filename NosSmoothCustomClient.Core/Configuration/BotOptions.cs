@@ -344,6 +344,21 @@ public sealed class BotOptions
     public TimeSpan BuffRefreshMargin { get; set; } = TimeSpan.FromSeconds(60);
 
     /// <summary>
+    /// Gets or sets which frames the packet trace keeps.
+    /// </summary>
+    /// <remarks>
+    /// Held here rather than beside the trace so it is saved with everything else: the headers
+    /// worth watching on one server are the first thing found and the first thing lost at the next
+    /// launch.
+    /// </remarks>
+    public PacketTraceSettings PacketTrace { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets the named sends kept for replay.
+    /// </summary>
+    public IList<SendMacro> SendMacros { get; set; } = new List<SendMacro>();
+
+    /// <summary>
     /// Gets or sets the grid path the character loops over while no target is alive.
     /// </summary>
     public IList<Waypoint> Waypoints { get; set; } = new List<Waypoint>

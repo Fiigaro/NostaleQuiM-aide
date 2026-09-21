@@ -104,6 +104,12 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets which key does what on the quick bar.</summary>
     public KeyBindings? Keys { get; set; }
 
+    /// <summary>Gets or sets which frames the packet trace keeps.</summary>
+    public PacketTraceEntry? PacketTrace { get; set; }
+
+    /// <summary>Gets or sets the named sends kept for replay.</summary>
+    public List<SendMacroEntry>? SendMacros { get; set; }
+
     /// <summary>One waypoint.</summary>
     /// <summary>One recorded place to click in the game's interface.</summary>
     public sealed class UiPointEntry
@@ -122,6 +128,41 @@ public sealed class BotConfigurationFile
 
         /// <summary>Gets or sets how long to wait afterwards.</summary>
         public int WaitAfterMs { get; set; } = 800;
+    }
+
+    /// <summary>Which frames the trace keeps.</summary>
+    public sealed class PacketTraceEntry
+    {
+        /// <summary>Gets or sets the only headers to show. Empty shows everything not hidden.</summary>
+        public string? Only { get; set; }
+
+        /// <summary>Gets or sets the headers to drop.</summary>
+        public string? Hide { get; set; }
+
+        /// <summary>Gets or sets whether server frames are shown.</summary>
+        public bool? ShowIncoming { get; set; }
+
+        /// <summary>Gets or sets whether client frames are shown.</summary>
+        public bool? ShowOutgoing { get; set; }
+    }
+
+    /// <summary>One named send kept for replay.</summary>
+    public sealed class SendMacroEntry
+    {
+        /// <summary>Gets or sets what it does.</summary>
+        public string? Name { get; set; }
+
+        /// <summary>Gets or sets how the lines are delivered.</summary>
+        public string? Kind { get; set; }
+
+        /// <summary>Gets or sets the lines, one instruction per line.</summary>
+        public string? Body { get; set; }
+
+        /// <summary>Gets or sets how many times the body is played.</summary>
+        public int Repetitions { get; set; } = 1;
+
+        /// <summary>Gets or sets the wait between two sends.</summary>
+        public int IntervalMs { get; set; } = 500;
     }
 
     /// <summary>One recorded step of the launch sequence.</summary>
@@ -278,6 +319,32 @@ public sealed class BotConfigurationFile
 
         Set(file.AutoLaunchInstance, v => options.AutoLaunchInstance = v, "AutoLaunchInstance", applied);
 
+        if (file.PacketTrace is { } packetTrace)
+        {
+            // Set individually rather than replacing the object: a file that names only "Hide"
+            // should not silently reset the directions to their defaults.
+            SetText(packetTrace.Only, v => options.PacketTrace.Only = v, "PacketTrace.Only", applied);
+            SetText(packetTrace.Hide, v => options.PacketTrace.Hide = v, "PacketTrace.Hide", applied);
+            Set(packetTrace.ShowIncoming, v => options.PacketTrace.ShowIncoming = v, "PacketTrace.ShowIncoming", applied);
+            Set(packetTrace.ShowOutgoing, v => options.PacketTrace.ShowOutgoing = v, "PacketTrace.ShowOutgoing", applied);
+        }
+
+        if (file.SendMacros is { Count: > 0 } macros)
+        {
+            options.SendMacros = macros
+                .Select(m => new SendMacro
+                (
+                    m.Name ?? "sans nom",
+                    Enum.TryParse<SendKind>(m.Kind, true, out var kind) ? kind : SendKind.PacketToServer,
+                    m.Body ?? string.Empty,
+                    m.Repetitions,
+                    m.IntervalMs
+                ))
+                .ToList();
+
+            applied.Add("SendMacros");
+        }
+
         if (HotKey.TryParse(file.RecordRunKey, out var recordKey))
         {
             options.RecordRunKey = recordKey.Label;
@@ -379,6 +446,21 @@ public sealed class BotConfigurationFile
         return applied.Count == 0
             ? (options, "the \"Bot\" section is empty, using built-in defaults")
             : (options, "applied " + string.Join(", ", applied));
+    }
+
+    /// <remarks>
+    /// Separate from <see cref="Set{T}"/> because an empty string is a value here, not an absent
+    /// one: clearing a filter list is exactly how everything is shown again.
+    /// </remarks>
+    private static void SetText(string? value, Action<string> assign, string name, ICollection<string> applied)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        assign(value);
+        applied.Add(name);
     }
 
     private static void Set<T>(T? value, Action<T> assign, string name, ICollection<string> applied)

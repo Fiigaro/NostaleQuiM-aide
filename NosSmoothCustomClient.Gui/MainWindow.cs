@@ -27,6 +27,13 @@ namespace NosSmoothCustomClient.Gui;
 /// </remarks>
 public sealed class MainWindow : Window
 {
+    /// <summary>How many frames the packet view holds, whatever the ring kept.</summary>
+    /// <remarks>
+    /// A list nobody can scroll to the top of is a list with no top. The ring keeps more, and
+    /// narrowing the filter is what reaches further back than this.
+    /// </remarks>
+    private const int MaxShownPackets = 600;
+
     private static readonly IBrush Ink = new SolidColorBrush(Color.Parse("#E6E6E6"));
     private static readonly IBrush Muted = new SolidColorBrush(Color.Parse("#9AA0A6"));
     private static readonly IBrush Panel = new SolidColorBrush(Color.Parse("#1E1F22"));
@@ -226,6 +233,65 @@ public sealed class MainWindow : Window
     private readonly ScrollViewer _logScroll;
     private DispatcherTimer? _timer;
 
+    private readonly PacketLog _packets;
+    private readonly PacketFilter _filter;
+    private readonly ManualSender _sender;
+
+    private readonly TextBox _filterOnly = FilterBox("filterOnly", 250);
+    private readonly TextBox _filterHide = FilterBox("filterHide", 250);
+    private readonly TextBox _filterSearch = FilterBox("filterSearch", 180);
+    private readonly CheckBox _filterIn = new() { Name = "filterIn", Content = "Entrants (serveur)", VerticalAlignment = VerticalAlignment.Center };
+    private readonly CheckBox _filterOut = new() { Name = "filterOut", Content = "Sortants (client)", VerticalAlignment = VerticalAlignment.Center };
+    private readonly Button _filterPause = new() { Name = "packetPause", Width = 180, Height = 28 };
+    private readonly Button _filterEmpty = new() { Content = "Vider", Width = 90, Height = 28 };
+    private readonly Button _filterAll = new() { Name = "packetAll", Content = "Tout montrer", Width = 140, Height = 28 };
+    private readonly Button _filterReset = new() { Content = "Filtre par défaut", Width = 160, Height = 28 };
+    private readonly TextBlock _packetCount = new()
+    {
+        Name = "packetCount",
+        Foreground = Muted,
+        FontSize = 11,
+        TextWrapping = TextWrapping.Wrap,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private readonly ListBox _packetList = new()
+    {
+        Name = "packetList",
+        Height = 240,
+        FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
+        FontSize = 11.5,
+        Background = new SolidColorBrush(Color.Parse("#141517"))
+    };
+
+    private readonly ComboBox _sendKind = new() { Name = "sendKind", Width = 210, Height = 32, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBox _sendBody = new()
+    {
+        Name = "sendBody",
+        AcceptsReturn = true,
+        Height = 74,
+        FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
+        FontSize = 12.5,
+        TextWrapping = TextWrapping.NoWrap,
+        Watermark = "une instruction par ligne"
+    };
+
+    private readonly NumericUpDown _sendTimes = Counter("sendTimes", 1, SendMacro.MaxRepetitions, 1, 1);
+    private readonly NumericUpDown _sendInterval = Counter("sendInterval", 0, 60000, 500, 100);
+    private readonly Button _sendGo = new() { Name = "sendGo", Content = "Envoyer", Width = 150, Height = 32 };
+    private readonly Button _sendStop = new() { Name = "sendStop", Content = "Arrêter", Width = 110, Height = 32, IsEnabled = false };
+    private readonly TextBlock _sendStatus = new() { Name = "sendStatus", Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 700 };
+    private readonly TextBlock _sendBlocked = new() { Name = "sendBlocked", Foreground = Blocked, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 700, IsVisible = false };
+
+    private readonly ComboBox _macroList = new() { Name = "macroList", Width = 220, Height = 32, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBox _macroName = new() { Name = "macroName", Width = 180, Height = 32, VerticalAlignment = VerticalAlignment.Center, Watermark = "nom" };
+    private readonly Button _macroLoad = new() { Name = "macroLoad", Content = "Charger", Width = 110, Height = 28 };
+    private readonly Button _macroSave = new() { Name = "macroSave", Content = "Garder sous ce nom", Width = 190, Height = 28 };
+    private readonly Button _macroDelete = new() { Name = "macroDelete", Content = "Oublier", Width = 110, Height = 28 };
+
+    private readonly List<PacketLine> _shownPackets = new();
+    private bool _packetViewStale = true;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="MainWindow"/> class.
     /// </summary>
@@ -235,6 +301,9 @@ public sealed class MainWindow : Window
     /// <param name="controller">The run/pause switch.</param>
     /// <param name="options">The bot options.</param>
     /// <param name="logs">The log buffer.</param>
+    /// <param name="packets">The packet ring the trace is read back from.</param>
+    /// <param name="filter">What the trace shows.</param>
+    /// <param name="sender">The manual send path.</param>
     /// <param name="mode">The transport mode, shown in the header.</param>
     /// <param name="input">The switchable input, when the transport has one.</param>
     /// <param name="recorder">The waypoint recorder, when the transport has one.</param>
@@ -246,6 +315,9 @@ public sealed class MainWindow : Window
         BotController controller,
         BotOptions options,
         LogBuffer logs,
+        PacketLog packets,
+        PacketFilter filter,
+        ManualSender sender,
         RunMode mode,
         SwitchableGameInput? input = null,
         WaypointRecorder? recorder = null,
@@ -263,6 +335,9 @@ public sealed class MainWindow : Window
         _controller = controller;
         _options = options;
         _logs = logs;
+        _packets = packets;
+        _filter = filter;
+        _sender = sender;
         _mode = mode;
 
         Title = "NosSmoothCustomClient";
@@ -401,6 +476,7 @@ public sealed class MainWindow : Window
         }
 
         BuildKeyFields();
+        BuildPacketControls();
 
         BuildSkillRows();
         BuildBuffRows();
@@ -502,6 +578,8 @@ public sealed class MainWindow : Window
         RefreshReadiness();
         RefreshRun();
         RefreshLog();
+        RefreshPackets();
+        RefreshSend();
     }
 
     private void RefreshMap()
@@ -697,6 +775,16 @@ public sealed class MainWindow : Window
         }));
 
         tabs.Items.Add(Tab("Espace-temps", Section("Salle d'instance", BuildInstanceSection())));
+
+        tabs.Items.Add(Tab("Paquets", new StackPanel
+        {
+            Spacing = 0,
+            Children =
+            {
+                Section("Ce que la trace montre", BuildFilterSection()),
+                Section("Envoyer soi-même", BuildSendSection())
+            }
+        }));
 
         tabs.Items.Add(Tab("Journal", new StackPanel
         {
@@ -2067,6 +2155,461 @@ public sealed class MainWindow : Window
             });
         }
     }
+
+    /// <summary>
+    /// Wires the packet view and the manual send panel to the engine.
+    /// </summary>
+    /// <remarks>
+    /// Every edit is pushed straight into the live filter rather than collected and applied on a
+    /// button: narrowing a trace is a search, and a search that only runs when confirmed is one
+    /// that has to be guessed right first time.
+    /// </remarks>
+    private void BuildPacketControls()
+    {
+        _filterOnly.Text = _filter.Only;
+        _filterHide.Text = _filter.Hide;
+        _filterSearch.Text = _filter.Search;
+        _filterIn.IsChecked = _filter.ShowIncoming;
+        _filterOut.IsChecked = _filter.ShowOutgoing;
+
+        _filterOnly.TextChanged += (_, _) => Narrow(() => _filter.Only = _filterOnly.Text ?? string.Empty);
+        _filterHide.TextChanged += (_, _) => Narrow(() => _filter.Hide = _filterHide.Text ?? string.Empty);
+        _filterSearch.TextChanged += (_, _) => Narrow(() => _filter.Search = _filterSearch.Text ?? string.Empty, persists: false);
+        _filterIn.IsCheckedChanged += (_, _) => Narrow(() => _filter.ShowIncoming = _filterIn.IsChecked == true);
+        _filterOut.IsCheckedChanged += (_, _) => Narrow(() => _filter.ShowOutgoing = _filterOut.IsChecked == true);
+
+        _filterPause.Click += (_, _) =>
+        {
+            _filter.Paused = !_filter.Paused;
+            RefreshPackets();
+        };
+
+        _filterEmpty.Click += (_, _) =>
+        {
+            _packets.Clear();
+            _packetViewStale = true;
+            RefreshPackets();
+        };
+
+        _filterAll.Click += (_, _) =>
+        {
+            _filter.ShowEverything();
+            ReadFilterBack();
+        };
+
+        _filterReset.Click += (_, _) =>
+        {
+            _filter.Reset();
+            ReadFilterBack();
+        };
+
+        // Selecting a line is how a frame goes from "seen once" to "sent again": doing the thing in
+        // the game, reading what it sent, and repeating it is the whole loop this tab exists for.
+        _packetList.SelectionChanged += (_, _) =>
+        {
+            if (_packetList.SelectedItem is not PacketLine line)
+            {
+                return;
+            }
+
+            _sendBody.Text = line.Packet;
+            _sendStatus.Text = $"« {line.Packet} » recopié. Choisis combien de fois, puis Envoyer.";
+            _sendStatus.Foreground = Muted;
+        };
+
+        foreach (var (label, _) in SendKinds)
+        {
+            _sendKind.Items.Add(label);
+        }
+
+        _sendKind.SelectedIndex = 0;
+        _sendKind.SelectionChanged += (_, _) => RefreshSend();
+
+        _sendGo.Click += (_, _) => _ = SendAsync();
+        _sendStop.Click += (_, _) => _sender.Stop();
+
+        _sendTimes.ValueChanged += (_, _) => RefreshSendPreview();
+        _sendInterval.ValueChanged += (_, _) => RefreshSendPreview();
+
+        _sender.Changed += () => Dispatcher.UIThread.Post(RefreshSend);
+
+        _macroLoad.Click += (_, _) => LoadMacro();
+        _macroSave.Click += (_, _) => KeepMacro();
+        _macroDelete.Click += (_, _) => ForgetMacro();
+
+        RefreshMacroList();
+    }
+
+    /// <summary>The kinds of send, in the order the panel offers them.</summary>
+    private static readonly (string Label, SendKind Kind)[] SendKinds =
+    {
+        ("Paquet vers le serveur", SendKind.PacketToServer),
+        ("Paquet vers le client", SendKind.PacketToClient),
+        ("Touche du jeu", SendKind.Key),
+        ("Clic (x,y)", SendKind.Click)
+    };
+
+    private SendKind SelectedKind
+        => _sendKind.SelectedIndex >= 0 && _sendKind.SelectedIndex < SendKinds.Length
+            ? SendKinds[_sendKind.SelectedIndex].Kind
+            : SendKind.PacketToServer;
+
+    private Control BuildFilterSection()
+    {
+        var panel = new StackPanel { Spacing = 8 };
+
+        panel.Children.Add(Note
+        (
+            "Une session NosTale, c'est surtout des déplacements et des apparitions de monstres. "
+            + "Ce qui est cherché - la trame d'une amélioration, d'un clic de PNJ, d'un objet utilisé - "
+            + "passe une fois entre deux cents lignes de fond. Les deux champs ci-dessous sont ce qui "
+            + "la rend lisible."
+        ));
+
+        panel.Children.Add(Field("Seulement ces en-têtes", _filterOnly,
+            "vide = tout ce qui n'est pas caché. Sépare par des espaces."));
+        panel.Children.Add(Field("Cacher ces en-têtes", _filterHide,
+            "le bruit de fond. Vide ce champ pour voir le flux brut."));
+        panel.Children.Add(Field("Contenant le texte", _filterSearch,
+            "filtre aussi sur les arguments, pas seulement l'en-tête."));
+
+        var directions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 18 };
+        directions.Children.Add(_filterIn);
+        directions.Children.Add(_filterOut);
+        panel.Children.Add(Field("Sens", directions, "ce que le client envoie est en OUT."));
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        buttons.Children.Add(_filterPause);
+        buttons.Children.Add(_filterEmpty);
+        buttons.Children.Add(_filterAll);
+        buttons.Children.Add(_filterReset);
+        panel.Children.Add(buttons);
+
+        panel.Children.Add(_packetCount);
+        panel.Children.Add(_packetList);
+
+        panel.Children.Add(Note
+        (
+            "La vue suit le flux, donc elle bouge. Mets-la en pause pour lire ou cliquer une ligne : "
+            + "un clic recopie la trame dans l'envoi ci-dessous."
+        ));
+
+        return panel;
+    }
+
+    private Control BuildSendSection()
+    {
+        var panel = new StackPanel { Spacing = 8 };
+
+        panel.Children.Add(Note
+        (
+            "Certaines actions sont lentes parce que le client les met en scène, pas parce que le "
+            + "serveur l'exige : une tentative d'amélioration qui prend huit secondes à l'écran est "
+            + "une trame envoyée une fois. Fais l'action une fois dans le jeu, relis-la au-dessus, "
+            + "et rejoue-la autant de fois que tu veux."
+        ));
+
+        panel.Children.Add(_sendBlocked);
+        panel.Children.Add(Field("Quoi envoyer", _sendKind));
+        panel.Children.Add(_sendBody);
+        panel.Children.Add(Note("Une instruction par ligne ; {i} est remplacé par le numéro du passage."));
+
+        var counts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        counts.Children.Add(new TextBlock { Text = "Fois", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
+        counts.Children.Add(_sendTimes);
+        counts.Children.Add(new TextBlock { Text = "Attente (ms)", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) });
+        counts.Children.Add(_sendInterval);
+        counts.Children.Add(_sendGo);
+        counts.Children.Add(_sendStop);
+        panel.Children.Add(counts);
+
+        panel.Children.Add(_sendStatus);
+
+        panel.Children.Add(Note
+        (
+            "L'attente est ce qui sépare deux envois. Le serveur garde ses propres délais : envoyer "
+            + "plus vite qu'il n'accepte ne fait pas aller plus vite, et peut faire déconnecter."
+        ));
+
+        panel.Children.Add(Heading("Gardés sous un nom"));
+
+        var macros = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        macros.Children.Add(_macroList);
+        macros.Children.Add(_macroLoad);
+        macros.Children.Add(_macroName);
+        macros.Children.Add(_macroSave);
+        macros.Children.Add(_macroDelete);
+        panel.Children.Add(macros);
+
+        panel.Children.Add(Note("Enregistrés avec le reste des réglages, en haut de la fenêtre."));
+
+        return panel;
+    }
+
+    /// <summary>
+    /// Redraws the trace from the ring, through the filter.
+    /// </summary>
+    /// <remarks>
+    /// Filtered on read, not on capture, so tightening or loosening the lists re-reads the frames
+    /// already seen. The list is only replaced when what it should hold has actually changed: doing
+    /// it on every tick would fight the scrollbar four times a second.
+    /// </remarks>
+    private void RefreshPackets()
+    {
+        _filterPause.Content = _filter.Paused ? "Reprendre la capture" : "Mettre la vue en pause";
+
+        var kept = _packets.Snapshot();
+        var shown = new List<PacketLine>(Math.Min(kept.Count, MaxShownPackets));
+
+        foreach (var line in kept)
+        {
+            if (_filter.Allows(line.Source, line.Packet))
+            {
+                shown.Add(line);
+            }
+        }
+
+        if (shown.Count > MaxShownPackets)
+        {
+            shown.RemoveRange(0, shown.Count - MaxShownPackets);
+        }
+
+        _packetCount.Text = $"{shown.Count} affichés sur {kept.Count} gardés, {_packets.Total} vus depuis le départ"
+                            + $"   ·   {_filter.Describe()}"
+                            + (_filter.Paused ? "   ·   EN PAUSE" : string.Empty);
+
+        var unchanged = !_packetViewStale
+                        && shown.Count == _shownPackets.Count
+                        && (shown.Count == 0 || shown[^1].Index == _shownPackets[^1].Index);
+
+        if (unchanged)
+        {
+            return;
+        }
+
+        _shownPackets.Clear();
+        _shownPackets.AddRange(shown);
+        _packetViewStale = false;
+
+        _packetList.ItemsSource = null;
+        _packetList.ItemsSource = _shownPackets;
+
+        // Following the tail is what makes it a live view; paused, it stays where it was put.
+        if (!_filter.Paused && _shownPackets.Count > 0)
+        {
+            _packetList.ScrollIntoView(_shownPackets.Count - 1);
+        }
+    }
+
+    private void RefreshSend()
+    {
+        var busy = _sender.IsBusy;
+        var blocked = _sender.WhyUnavailable(SelectedKind);
+
+        _sendGo.IsEnabled = !busy && blocked is null;
+        _sendStop.IsEnabled = busy;
+        _sendBlocked.Text = blocked ?? string.Empty;
+        _sendBlocked.IsVisible = blocked is not null;
+
+        _sendBody.Watermark = SelectedKind switch
+        {
+            SendKind.Key => "une touche par ligne, par exemple 1 ou space",
+            SendKind.Click => "un point par ligne : 467,460 (ajoute double pour un double-clic)",
+            _ => "une trame par ligne, telle qu'elle apparaît au-dessus"
+        };
+    }
+
+    private void RefreshSendPreview()
+    {
+        if (_sender.IsBusy)
+        {
+            return;
+        }
+
+        var macro = CurrentMacro();
+        _sendStatus.Text = macro.Lines.Count == 0
+            ? string.Empty
+            : $"{macro.TotalSends} envoi(s) au total, un toutes les {macro.IntervalMs} ms.";
+
+        _sendStatus.Foreground = Muted;
+    }
+
+    private SendMacro CurrentMacro()
+        => new
+        (
+            string.IsNullOrWhiteSpace(_macroName.Text) ? "envoi" : _macroName.Text!.Trim(),
+            SelectedKind,
+            _sendBody.Text ?? string.Empty,
+            (int)(_sendTimes.Value ?? 1),
+            (int)(_sendInterval.Value ?? 0)
+        );
+
+    private async Task SendAsync()
+    {
+        var macro = CurrentMacro();
+
+        _sendStatus.Text = $"envoi de {macro.TotalSends}…";
+        _sendStatus.Foreground = Cooling;
+        RefreshSend();
+
+        var outcome = await _sender.RunAsync(macro).ConfigureAwait(true);
+
+        _sendStatus.Text = outcome.Describe();
+        _sendStatus.Foreground = outcome.Complete ? Ready : Blocked;
+        RefreshSend();
+    }
+
+    private void RefreshMacroList()
+    {
+        var selected = _macroList.SelectedItem as SendMacro;
+
+        _macroList.ItemsSource = null;
+        _macroList.ItemsSource = _options.SendMacros.ToList();
+
+        if (selected is not null)
+        {
+            _macroList.SelectedItem = _options.SendMacros.FirstOrDefault(m => m.Name == selected.Name);
+        }
+    }
+
+    private void LoadMacro()
+    {
+        if (_macroList.SelectedItem is not SendMacro macro)
+        {
+            _sendStatus.Text = "choisis d'abord un envoi dans la liste.";
+            _sendStatus.Foreground = Cooling;
+            return;
+        }
+
+        var index = Array.FindIndex(SendKinds, k => k.Kind == macro.Kind);
+        _sendKind.SelectedIndex = index < 0 ? 0 : index;
+        _sendBody.Text = macro.Body;
+        _sendTimes.Value = Math.Clamp(macro.Repetitions, 1, SendMacro.MaxRepetitions);
+        _sendInterval.Value = Math.Clamp(macro.IntervalMs, 0, 60000);
+        _macroName.Text = macro.Name;
+
+        _sendStatus.Text = $"« {macro.Name} » chargé : {macro.TotalSends} envoi(s).";
+        _sendStatus.Foreground = Muted;
+    }
+
+    private void KeepMacro()
+    {
+        var macro = CurrentMacro();
+
+        if (macro.Lines.Count == 0)
+        {
+            _sendStatus.Text = "il n'y a rien à garder : le contenu est vide.";
+            _sendStatus.Foreground = Cooling;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_macroName.Text))
+        {
+            _sendStatus.Text = "donne-lui un nom, sinon il sera introuvable dans la liste.";
+            _sendStatus.Foreground = Cooling;
+            return;
+        }
+
+        // Same name means the same entry: keeping two would leave the list saying one thing and
+        // doing another depending on which was picked.
+        var existing = _options.SendMacros.FirstOrDefault(m => m.Name.Equals(macro.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is not null)
+        {
+            _options.SendMacros[_options.SendMacros.IndexOf(existing)] = macro;
+        }
+        else
+        {
+            _options.SendMacros.Add(macro);
+        }
+
+        RefreshMacroList();
+        _macroList.SelectedItem = _options.SendMacros.FirstOrDefault(m => m.Name == macro.Name);
+
+        _sendStatus.Text = $"« {macro.Name} » gardé. Enregistre les réglages pour le retrouver au prochain lancement.";
+        _sendStatus.Foreground = Ready;
+        MarkDirty();
+    }
+
+    private void ForgetMacro()
+    {
+        if (_macroList.SelectedItem is not SendMacro macro)
+        {
+            _sendStatus.Text = "choisis d'abord un envoi dans la liste.";
+            _sendStatus.Foreground = Cooling;
+            return;
+        }
+
+        _options.SendMacros.Remove(macro);
+        RefreshMacroList();
+
+        _sendStatus.Text = $"« {macro.Name} » oublié.";
+        _sendStatus.Foreground = Muted;
+        MarkDirty();
+    }
+
+    /// <param name="change">What to change on the live filter.</param>
+    /// <param name="persists">Whether the change is one the settings file keeps.</param>
+    /// <remarks>
+    /// The search box is the one that does not persist: it is a question asked of what is already
+    /// on screen, not a setting, so typing in it must not announce unsaved changes.
+    /// </remarks>
+    private void Narrow(Action change, bool persists = true)
+    {
+        change();
+        _packetViewStale = true;
+
+        if (persists)
+        {
+            MarkDirty();
+        }
+
+        RefreshPackets();
+    }
+
+    private void ReadFilterBack()
+    {
+        // The buttons change the filter wholesale, so the boxes have to be told; they push back on
+        // edit, which is why this sets the stale flag rather than relying on their handlers.
+        _filterOnly.Text = _filter.Only;
+        _filterHide.Text = _filter.Hide;
+        _filterSearch.Text = _filter.Search;
+        _filterIn.IsChecked = _filter.ShowIncoming;
+        _filterOut.IsChecked = _filter.ShowOutgoing;
+
+        _packetViewStale = true;
+        MarkDirty();
+        RefreshPackets();
+    }
+
+    private static TextBox FilterBox(string name, double width)
+        => new()
+        {
+            Name = name,
+            Width = width,
+            Height = 30,
+            FontSize = 12.5,
+            FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
+            VerticalAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+
+    private static NumericUpDown Counter(string name, int minimum, int maximum, int value, int step)
+        => new()
+        {
+            Name = name,
+            Minimum = minimum,
+            Maximum = maximum,
+            Value = value,
+            Increment = step,
+            FormatString = "0",
+            Width = 120,
+            Height = 32,
+            FontSize = 14,
+            Padding = new Thickness(6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
 
     private static Control Section(string heading, Control content)
     {

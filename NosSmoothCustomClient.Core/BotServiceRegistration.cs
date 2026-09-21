@@ -93,6 +93,15 @@ public static class BotServiceRegistration
         services.AddSingleton<PacketDispatcher>();
         services.AddSingleton<LogBuffer>();
         services.AddSingleton<PacketCounter>();
+        services.AddSingleton<PacketLog>();
+
+        // The filter writes through the stored settings, so what the window narrows is what the
+        // next save records. Tracing to the log stays opt-in outside capture, where the transport
+        // already prints its own frames and a second copy would double every line.
+        services.AddSingleton(sp => new PacketFilter(sp.GetRequiredService<BotOptions>().PacketTrace)
+        {
+            TraceToLog = trace || mode == RunMode.Pcap
+        });
 
         // 5. Responders.
         services.AddPacketResponder<PlayerStatsResponder>();
@@ -108,11 +117,11 @@ public static class BotServiceRegistration
         services.AddPacketResponder<BuffResponder>();
         services.AddPacketResponder<QuiMStatResponder>();
 
-        // Capture exists to be watched, so tracing is on by default there; elsewhere it is opt-in.
-        if (trace || mode == RunMode.Pcap)
-        {
-            services.AddPacketResponder<PacketTraceResponder>();
-        }
+        // Registered whatever the mode: it is what fills the ring the packet view reads back, and
+        // the filter decides on its own whether anything also reaches the log. Making the
+        // registration conditional instead would mean the view is empty in the very modes where a
+        // frame is worth looking up before repeating it.
+        services.AddPacketResponder<PacketTraceResponder>();
 
         // Capture is the calibration transport, so the deduction runs there by default.
         if (mode == RunMode.Pcap)
@@ -180,6 +189,18 @@ public static class BotServiceRegistration
         // The packet path stays the reference for everything the simulator drives.
         services.TryAddSingleton<IBotActuator, PacketActuator>();
 
+        // Built by hand rather than resolved: the live/dry-run switch only exists under capture,
+        // and the transport is what decides whether a packet can be sent at all.
+        services.AddSingleton(sp => new ManualSender
+        (
+            sp.GetRequiredService<INostaleClient>(),
+            sp.GetRequiredService<IBotActuator>(),
+            sp.GetRequiredService<PacketLog>(),
+            sp.GetService<SwitchableGameInput>(),
+            mode,
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ManualSender>>()
+        ));
+
         // 7. Workers shared by every front-end.
         services.AddHostedService<NostaleClientHostedService>();
         // Registered as itself and forwarded, so the window can read what the loop last decided
@@ -198,6 +219,38 @@ public static class BotServiceRegistration
     /// <returns>A result describing whether the stock packets could be registered.</returns>
     public static Remora.Results.Result RegisterPacketTypes(IServiceProvider provider)
         => provider.GetRequiredService<PacketTypeRegistrar>().Register();
+
+    /// <summary>
+    /// Applies the trace narrowing asked for on the command line.
+    /// </summary>
+    /// <param name="provider">The service provider.</param>
+    /// <param name="cli">The parsed command line.</param>
+    /// <remarks>
+    /// Naming headers also turns the trace on. Narrowing a trace that is not being printed would
+    /// otherwise produce silence, which reads exactly like a transport that has stopped seeing the
+    /// game.
+    /// </remarks>
+    public static void ApplyTraceFilter(IServiceProvider provider, CommandLine cli)
+    {
+        if (cli.Only is null && cli.Hide is null)
+        {
+            return;
+        }
+
+        var filter = provider.GetRequiredService<PacketFilter>();
+
+        if (cli.Only is { } only)
+        {
+            filter.Only = only;
+        }
+
+        if (cli.Hide is { } hide)
+        {
+            filter.Hide = hide;
+        }
+
+        filter.TraceToLog = true;
+    }
 
     /// <summary>
     /// Gets the assembly holding the custom packet definitions.
