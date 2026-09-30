@@ -421,6 +421,7 @@ public static class SelfTest
             ("les paquets captures sont listes", packetsListed),
             ("une ligne se recopie dans l'envoi", packetCopies),
             ("le bouton d'envoi repond toujours", sendAnswers),
+            ("le journal se met en pause", LogPauses(visuals)),
 
             // Le coeur de l'affaire : demander quatre fois doit envoyer quatre fois, et chaque
             // envoi doit se retrouver dans la trace - un compteur seul décrirait aussi bien une
@@ -532,6 +533,25 @@ public static class SelfTest
                && reloaded.RewardSequence[0].X == 467
                && !reloaded.RewardSequence[1].DoubleClick
                && reloaded.RewardSequence[1].Y == 571;
+    }
+
+    private static bool LogPauses(List<Visual> visuals)
+    {
+        var pause = visuals.OfType<Button>().FirstOrDefault(b => b.Name == "logPause");
+        var log = visuals.OfType<SelectableTextBlock>().FirstOrDefault(t => t.TextWrapping == Avalonia.Media.TextWrapping.NoWrap);
+        if (pause is null || log is null)
+        {
+            return false;
+        }
+
+        Click(pause);
+        var frozen = log.Text;
+        _services!.GetRequiredService<ILoggerFactory>().CreateLogger("test").LogInformation("ligne arrivee pendant la pause");
+        Dispatcher.UIThread.RunJobs();
+        var held = log.Text == frozen;
+
+        Click(pause);
+        return held;
     }
 
     private static bool HeadersAreRead()

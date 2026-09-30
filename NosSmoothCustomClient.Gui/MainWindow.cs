@@ -233,6 +233,9 @@ public sealed class MainWindow : Window
     private readonly ScrollViewer _logScroll;
     private DispatcherTimer? _timer;
 
+    private readonly Button _logPause = new() { Name = "logPause", Width = 200, Height = 28 };
+    private bool _logPaused;
+
     private readonly PacketLog _packets;
     private readonly PacketFilter _filter;
     private readonly ManualSender _sender;
@@ -693,6 +696,15 @@ public sealed class MainWindow : Window
 
     private void RefreshLog()
     {
+        _logPause.Content = _logPaused ? "Reprendre le journal" : "Mettre le journal en pause";
+
+        // Frozen view, live engine: the buffer keeps filling, only the drawing stops, so resuming
+        // catches up on everything that happened meanwhile instead of losing it.
+        if (_logPaused)
+        {
+            return;
+        }
+
         var lines = _logs.Snapshot();
         var builder = new StringBuilder(lines.Count * 80);
 
@@ -792,7 +804,7 @@ public sealed class MainWindow : Window
             Children =
             {
                 Section("Enregistrer une run", BuildRunSection()),
-                Section("Journal", _logScroll)
+                Section("Journal", new StackPanel { Spacing = 6, Children = { _logPause, _logScroll } })
             }
         }));
 
@@ -2232,6 +2244,12 @@ public sealed class MainWindow : Window
         _sendInterval.ValueChanged += (_, _) => RefreshSendPreview();
 
         _sender.Changed += () => Dispatcher.UIThread.Post(RefreshSend);
+
+        _logPause.Click += (_, _) =>
+        {
+            _logPaused = !_logPaused;
+            RefreshLog();
+        };
 
         _macroLoad.Click += (_, _) => LoadMacro();
         _macroSave.Click += (_, _) => KeepMacro();
