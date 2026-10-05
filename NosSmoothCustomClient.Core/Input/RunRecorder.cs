@@ -251,7 +251,7 @@ public sealed class RunRecorder : BackgroundService
                 // Every offered key, not only the bound one. A key that never arrives and a key
                 // whose action is broken look the same from outside, and this is what tells them
                 // apart without a debugger on the operator's machine.
-                foreach (var choice in HotKey.Choices)
+                foreach (var choice in HotKey.Watched)
                 {
                     var pressed = IsDown(choice.VirtualKey);
                     hotKeys.TryGetValue(choice.VirtualKey, out var wasPressed);

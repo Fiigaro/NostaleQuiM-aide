@@ -187,6 +187,14 @@ public sealed class MainWindow : Window
         HorizontalContentAlignment = HorizontalAlignment.Center
     };
     private readonly Button _saveRoute = new() { Content = "Enregistrer la route", Width = 170, Height = 28 };
+    private readonly Button _captureWaypoint = new() { Name = "captureWaypoint", Content = "Capturer un point (5 s)", Width = 210, Height = 30 };
+    private readonly Button _captureDraw = new() { Name = "captureDraw", Content = "Capturer la case (double-clic, 5 s)", Width = 270, Height = 30 };
+    private readonly Button _captureConfirm = new() { Name = "captureConfirm", Content = "Capturer Confirm (clic, 5 s)", Width = 240, Height = 30 };
+
+    private DispatcherTimer? _countdown;
+    private Func<(bool Ok, string Message)>? _pendingCapture;
+    private TextBlock? _countdownStatus;
+    private int _countdownLeft;
     private readonly StackPanel _routeList = new() { Spacing = 3 };
     private readonly StackPanel _readiness = new() { Spacing = 3 };
     private readonly Button _runStart = new() { Name = "runStart", Content = "Commencer l'enregistrement", Width = 230, Height = 30 };
@@ -301,6 +309,27 @@ public sealed class MainWindow : Window
         _live.Click += (_, _) => ToggleLive();
         _arm.Click += (_, _) => ToggleArm();
         _clearRoute.Click += (_, _) => ClearRoute();
+
+        _captureWaypoint.Click += (_, _) => BeginCapture
+        (
+            _routeStatus,
+            "vise le point sur la minimap",
+            () => _recorder!.CaptureAtCursor()
+        );
+
+        _captureDraw.Click += (_, _) => BeginCapture
+        (
+            _rewardStatus,
+            "vise la case à tirer",
+            () => _recorder!.CaptureUiPointAtCursor(true)
+        );
+
+        _captureConfirm.Click += (_, _) => BeginCapture
+        (
+            _rewardStatus,
+            "vise le bouton Confirm",
+            () => _recorder!.CaptureUiPointAtCursor(false)
+        );
         _testClick.Click += (_, _) => TestClick();
         _probeClick.Click += (_, _) => ProbeClick();
         _runStart.Click += (_, _) => StartRecording();
@@ -1478,14 +1507,20 @@ public sealed class MainWindow : Window
 
         panel.Children.Add(Note
         (
-            "Ajouter un point : place ton personnage à l'endroit voulu → arme F9 → vise ce même "
-            + "endroit sur la minimap dans NosTale → presse F9. F10 enregistre.",
+            "Ajouter un point : place ton personnage à l'endroit voulu, clique sur « Capturer un "
+            + "point », puis amène la souris sur ce même endroit de la minimap dans NosTale — pas "
+            + "besoin de cliquer ni de changer de fenêtre, la position est lue au bout du compte à "
+            + "rebours. F9 fait la même chose depuis le jeu si la touche passe.",
             Ink
         ));
 
+        var capture = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        capture.Children.Add(_captureWaypoint);
+        capture.Children.Add(_saveRoute);
+        panel.Children.Add(capture);
+
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         actions.Children.Add(_arm);
-        actions.Children.Add(_saveRoute);
         actions.Children.Add(_clearRoute);
         actions.Children.Add(_routeStatus);
         panel.Children.Add(actions);
@@ -1554,10 +1589,16 @@ public sealed class MainWindow : Window
 
         panel.Children.Add(Note
         (
-            "Arme F9, puis dans le jeu : F7 sur la case à tirer (double-clic), F8 sur Confirm "
-            + "(clic simple). F10 enregistre.",
+            "Ouvre le panneau de fin, clique sur un des deux boutons ci-dessous, puis amène la "
+            + "souris sur l'élément visé dans NosTale : la position est lue au bout du compte à "
+            + "rebours. F7 et F8 font la même chose depuis le jeu, une fois F9 armé.",
             Ink
         ));
+
+        var rewardCapture = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        rewardCapture.Children.Add(_captureDraw);
+        rewardCapture.Children.Add(_captureConfirm);
+        panel.Children.Add(rewardCapture);
 
         panel.Children.Add(Field("Attendre avant les clics (s)", _rewardDelay,
             "le panneau met quelques secondes à s'afficher ; le délai repart du chargement de carte"));
@@ -1675,6 +1716,80 @@ public sealed class MainWindow : Window
 
     /// <summary>Gets the recording key as it currently reads, for every line that names it.</summary>
     private string RecordKey => HotKey.Resolve(_options.RecordRunKey).Label;
+
+    /// <summary>
+    /// Counts down, then captures wherever the mouse is pointing.
+    /// </summary>
+    /// <param name="status">Where to report progress.</param>
+    /// <param name="what">What to aim at, for the line shown while it counts.</param>
+    /// <param name="capture">What to do when it reaches zero.</param>
+    /// <remarks>
+    /// The delay is the whole trick. What has to be captured is the mouse, so a button cannot read
+    /// it at the moment it is pressed - the mouse is on the button. Pressing, then pointing, then
+    /// having it read, is the same gesture as the hotkey without needing the key to arrive.
+    /// </remarks>
+    private void BeginCapture(TextBlock status, string what, Func<(bool Ok, string Message)> capture)
+    {
+        if (_recorder is null)
+        {
+            status.Text = "disponible en mode capture (--pcap)";
+            status.Foreground = Blocked;
+            return;
+        }
+
+        if (!_recorder.Available)
+        {
+            status.Text = _recorder.UnavailableReason ?? "fenêtre de jeu introuvable";
+            status.Foreground = Blocked;
+            return;
+        }
+
+        _countdown?.Stop();
+        _pendingCapture = capture;
+        _countdownStatus = status;
+        _countdownLeft = 5;
+
+        status.Text = $"{what} — capture dans {_countdownLeft} s";
+        status.Foreground = Cooling;
+
+        _countdown ??= CreateCountdown();
+        _countdown.Start();
+    }
+
+    private DispatcherTimer CreateCountdown()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        timer.Tick += (_, _) => Tick();
+        return timer;
+    }
+
+    private void Tick()
+    {
+        if (_countdownStatus is not { } status || _pendingCapture is not { } capture)
+        {
+            _countdown?.Stop();
+            return;
+        }
+
+        _countdownLeft--;
+
+        if (_countdownLeft > 0)
+        {
+            var text = status.Text ?? string.Empty;
+            var cut = text.LastIndexOf(" — capture dans", StringComparison.Ordinal);
+            status.Text = (cut < 0 ? text : text[..cut]) + $" — capture dans {_countdownLeft} s";
+            return;
+        }
+
+        _countdown?.Stop();
+        _pendingCapture = null;
+
+        var (ok, message) = capture();
+        status.Text = message;
+        status.Foreground = ok ? Ready : Blocked;
+
+        RefreshRoute();
+    }
 
     private void RefreshLaunch()
     {

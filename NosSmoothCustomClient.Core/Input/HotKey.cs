@@ -43,6 +43,24 @@ public readonly record struct HotKey(string Label, int VirtualKey)
     };
 
     /// <summary>
+    /// Every key reported as seen, which is more than the keys on offer.
+    /// </summary>
+    /// <remarks>
+    /// F7 to F10 cannot be chosen here - they are the route recorder's - but they are watched all
+    /// the same, because "F9 does nothing" is the same question as "F12 does nothing" and deserves
+    /// the same answer: whether the press reaches this process at all.
+    /// </remarks>
+    public static IReadOnlyList<HotKey> Watched { get; } = Choices
+        .Concat(new[]
+        {
+            new HotKey("F7", 0x76),
+            new HotKey("F8", 0x77),
+            new HotKey("F9", 0x78),
+            new HotKey("F10", 0x79)
+        })
+        .ToArray();
+
+    /// <summary>
     /// Reads a hotkey from configuration.
     /// </summary>
     /// <param name="text">The key as written.</param>

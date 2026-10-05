@@ -692,6 +692,13 @@ public static class CombatSelfCheck
 
         var reads = HotKey.TryParse("pause", out var pause) && pause.VirtualKey == 0x13;
 
+        // Not offered, but watched: a dead F9 has to be as diagnosable as a dead F12, and the only
+        // way to tell a key that never arrives from a feature that is broken is to report it.
+        var watchesTheOthers = takenByTheRoute.All(k => HotKey.Watched.Any(w => w.VirtualKey == k))
+                               && HotKey.Choices.All(c => HotKey.Watched.Contains(c));
+
+        noCollision &= watchesTheOthers;
+
         return ("la touche d'enregistrement ne marche sur aucune autre", noCollision && fallsBack && reads);
     }
 

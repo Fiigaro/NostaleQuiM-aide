@@ -153,6 +153,24 @@ public static class SelfTest
             rewardPlaysOnDemand = silentBefore && !string.IsNullOrWhiteSpace(rewardStatus.Text);
         }
 
+        // Les captures à la souris : un bouton pour la route, deux pour le panneau de récompense.
+        var captures = visuals.OfType<Button>()
+            .Where(b => b.Name is "captureWaypoint" or "captureDraw" or "captureConfirm")
+            .ToList();
+
+        var captureButtons = captures.Count == 3
+                             && captures.All(b => (b.Content as string)?.Contains("5 s") == true);
+
+        if (captureButtons)
+        {
+            // Sans enregistreur, presser doit dire pourquoi plutôt que lancer un décompte muet.
+            var texts0 = visuals.OfType<TextBlock>().ToList();
+            var before = texts0.Select(s => s.Text).ToList();
+            Click(captures[0]);
+
+            captureButtons = texts0.Zip(before).Any(pair => pair.First.Text != pair.Second);
+        }
+
         // Les deux boutons d'enregistrement, dans les deux endroits où on en a besoin.
         var buttons = visuals.OfType<Button>().ToList();
         var starts = buttons.Where(b => b.Name is "runStart" or "launchRecStart").ToList();
@@ -357,6 +375,11 @@ public static class SelfTest
             // lancement s'enregistre : un bouton dans un autre onglet est un bouton absent. Sans
             // enregistreur ils sont éteints, et le panneau dit pourquoi - jamais muets.
             ("boutons commencer et finir presents", recordingButtons),
+
+            // Capturer un point exige que la souris soit sur la minimap, donc un bouton ne peut pas
+            // lire au moment où on le presse : il compte, on pointe, il lit. Sans ça, la route ne
+            // s'enregistre qu'avec une touche - et quatre touches ont déjà échoué sur cette machine.
+            ("capture sans touche possible", captureButtons),
             ("le bouton de lancement repond toujours", launchAnswers),
 
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon

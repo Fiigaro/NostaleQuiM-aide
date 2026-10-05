@@ -40,6 +40,10 @@ public sealed class WaypointRecorder : BackgroundService
     // The map the points belong to, taken when the first one is captured.
     private int _recordedOnMap = -1;
     private volatile bool _available;
+
+    // The window the cursor is measured against, kept so a capture can also be asked for from the
+    // window rather than only by the key the polling loop watches.
+    private IntPtr _window;
     private DateTimeOffset _nextDisarmedWarning = DateTimeOffset.MinValue;
 
     /// <summary>
@@ -206,6 +210,7 @@ public sealed class WaypointRecorder : BackgroundService
             return;
         }
 
+        _window = window;
         Available = true;
 
         _logger.LogInformation
@@ -426,6 +431,62 @@ public sealed class WaypointRecorder : BackgroundService
             // the town: refused where its coordinates mean something, walked where they mean nothing.
             _options.RouteMapId = _recordedOnMap >= 0 ? _recordedOnMap : null;
         }
+    }
+
+    /// <summary>
+    /// Captures a route point where the mouse is pointing, on demand.
+    /// </summary>
+    /// <returns>Whether it worked, and what to tell the operator.</returns>
+    /// <remarks>
+    /// The key was never the point; pointing at the minimap is. A hotkey is simply the only way to
+    /// say "now" without moving the mouse - and when the key never arrives, which has now happened
+    /// with four different keys on this machine, the whole feature is unreachable for a reason that
+    /// has nothing to do with it. Asking from the window, after a countdown that leaves time to
+    /// point, needs no key at all.
+    /// </remarks>
+    public (bool Ok, string Message) CaptureAtCursor()
+    {
+        if (_window == IntPtr.Zero)
+        {
+            return (false, UnavailableReason ?? "fenêtre de jeu introuvable");
+        }
+
+        if (!TryReadCursor(_window, out var x, out var y))
+        {
+            return (false, "la souris n'était pas dans la fenêtre du jeu");
+        }
+
+        if (!_state.HasPosition)
+        {
+            return (false, "position du personnage inconnue : marche d'une case, le serveur la dira");
+        }
+
+        var position = _state.Position;
+        Capture(x, y);
+
+        return (true, $"point ({position.X},{position.Y}) capturé, clic minimap ({x},{y})");
+    }
+
+    /// <summary>
+    /// Captures an interface click where the mouse is pointing, on demand.
+    /// </summary>
+    /// <param name="doubleClick">Whether the point needs two clicks.</param>
+    /// <returns>Whether it worked, and what to tell the operator.</returns>
+    public (bool Ok, string Message) CaptureUiPointAtCursor(bool doubleClick)
+    {
+        if (_window == IntPtr.Zero)
+        {
+            return (false, UnavailableReason ?? "fenêtre de jeu introuvable");
+        }
+
+        if (!TryReadCursor(_window, out var x, out var y))
+        {
+            return (false, "la souris n'était pas dans la fenêtre du jeu");
+        }
+
+        CaptureUiPoint(x, y, doubleClick);
+
+        return (true, $"{(doubleClick ? "double-clic" : "clic")} ({x},{y}) capturé");
     }
 
     private void CaptureInterface(IntPtr window, bool doubleClick)
