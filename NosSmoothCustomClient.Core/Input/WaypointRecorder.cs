@@ -458,7 +458,12 @@ public sealed class WaypointRecorder : BackgroundService
 
         if (!_state.HasPosition)
         {
-            return (false, "position du personnage inconnue : marche d'une case, le serveur la dira");
+            return
+            (
+                false,
+                "position du personnage encore inconnue : fais un pas dans le jeu, elle sera lue "
+                + "au premier déplacement"
+            );
         }
 
         var position = _state.Position;

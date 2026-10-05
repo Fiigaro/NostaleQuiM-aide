@@ -108,6 +108,7 @@ public static class BotServiceRegistration
         services.AddPacketResponder<EntitySpawnResponder>();
         services.AddPacketResponder<TargetHpResponder>();
         services.AddPacketResponder<PositionTrackingResponder>();
+        services.AddPacketResponder<OwnMovementResponder>();
         services.AddPacketResponder<MapResponder>();
 
         // Always registered, recording or not: responders write into it unconditionally and it is

@@ -56,6 +56,12 @@ public sealed class ProtocolStateManager
     private readonly SemaphoreSlim _cycleLock = new(1, 1);
 
     private Waypoint _position;
+
+    // Where the client last told the server it was walking to. Ours by construction: nobody else's
+    // client sends packets down this connection.
+    private Waypoint _walkIntent;
+    private long _walkIntentStamp;
+    private bool _hasWalkIntent;
     private bool _hasPosition;
     private TargetSnapshot? _target;
 
@@ -250,6 +256,68 @@ public sealed class ProtocolStateManager
         {
             _position = new Waypoint(x, y);
             _hasPosition = true;
+        }
+    }
+
+    /// <summary>
+    /// Records where our own client just said it is walking to.
+    /// </summary>
+    /// <param name="x">The destination X.</param>
+    /// <param name="y">The destination Y.</param>
+    /// <remarks>
+    /// The server announces our position in an <c>at</c> packet, which it sends on map entry and on
+    /// teleport - and at no other time. Start watching a session already underway and that packet
+    /// has long since gone, so the character has no known position, our own network id is never
+    /// resolved, and every <c>mv</c> that would have given it belongs, as far as we can tell, to
+    /// somebody else. The one thing still available is what our own client sends: a walk packet is
+    /// ours by construction, because nobody else's client talks down this connection.
+    ///
+    /// It is used only while nothing better exists. A walk is sent before the step lands, so taking
+    /// it for the position means believing we have arrived a moment early - acceptable as the only
+    /// source there is, wrong as soon as the server is telling us properly.
+    /// </remarks>
+    public void NoteWalkIntent(int x, int y)
+    {
+        lock (_positionSync)
+        {
+            _walkIntent = new Waypoint(x, y);
+            _walkIntentStamp = Stopwatch.GetTimestamp();
+            _hasWalkIntent = true;
+        }
+
+        if (Interlocked.Read(ref _ownCharacterId) < 0)
+        {
+            UpdatePosition(x, y);
+        }
+    }
+
+    /// <summary>
+    /// Whether a player's move looks like the one our own client just asked for.
+    /// </summary>
+    /// <param name="x">Where the player moved to.</param>
+    /// <param name="y">Where the player moved to.</param>
+    /// <returns>True when it matches our own walk closely enough to be us.</returns>
+    /// <remarks>
+    /// This is how the session heals itself: one step, and the move the server broadcasts for it
+    /// identifies which of the players on screen we are. From then on the ordinary, exact tracking
+    /// applies. Deliberately narrow - the same destination, within a cell, within seconds - because
+    /// adopting somebody else's id would make every position wrong rather than merely unknown.
+    /// </remarks>
+    public bool LooksLikeOurOwnMove(int x, int y)
+    {
+        lock (_positionSync)
+        {
+            if (!_hasWalkIntent)
+            {
+                return false;
+            }
+
+            if (Stopwatch.GetElapsedTime(_walkIntentStamp, Stopwatch.GetTimestamp()) > TimeSpan.FromSeconds(5))
+            {
+                return false;
+            }
+
+            return Distance(_walkIntent.X, _walkIntent.Y, x, y) <= 1;
         }
     }
 

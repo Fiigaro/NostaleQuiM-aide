@@ -3,7 +3,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NosSmooth.Core.Packets;
 using NosSmooth.Packets.Enums.Battle;
 using NosSmooth.Packets.Enums.Entities;
+using NosSmooth.Packets.Client.Movement;
 using NosSmooth.Packets.Server.Battle;
+using NosSmooth.Packets.Server.Entities;
 using NosSmooth.Packets.Server.Maps;
 using NosSmooth.PacketSerializer.Abstractions.Attributes;
 using NosSmoothCustomClient.Responders;
@@ -69,7 +71,8 @@ public static class CombatSelfCheck
             await ALaunchStepGivesUpRatherThanStopsAsync().ConfigureAwait(false),
             ARecordedRunBecomesALaunch(),
             TheRecordingKeyIsFreeOfTheOthers(),
-            ADeadHotKeyIsToldApartFromABrokenOne()
+            ADeadHotKeyIsToldApartFromABrokenOne(),
+            await OurOwnWalkRevealsWhoWeAreAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -719,6 +722,63 @@ public static class CombatSelfCheck
 
         return ("une touche jamais reçue se distingue d'une touche cassée",
             saysWhatToDo && boundGood && bound.Contains("Pause") && namesBoth);
+    }
+
+    private static async Task<(string, bool)> OurOwnWalkRevealsWhoWeAreAsync()
+    {
+        var options = new BotOptions();
+        var state = new ProtocolStateManager(options);
+        var walks = new OwnMovementResponder(state, NullLogger<OwnMovementResponder>.Instance);
+        var moves = new PositionTrackingResponder(state, NullLogger<PositionTrackingResponder>.Instance);
+
+        // A session joined while the character stands still: at went by long ago, so nothing is
+        // known about where we are or which of the players on screen we even are.
+        var blind = !state.HasPosition && state.OwnCharacterId < 0;
+
+        // One step. The walk packet is ours by construction - it came out of the client we are
+        // listening to - so it is a position even before the server says anything.
+        await walks.Respond(new PacketEventArgs<WalkPacket>
+        (
+            PacketSource.Client,
+            new WalkPacket(55, 60, 1, 11),
+            "walk 55 60 1 11"
+        )).ConfigureAwait(false);
+
+        var learned = state.HasPosition && state.Position.X == 55 && state.Position.Y == 60;
+
+        // And the move the server broadcasts for that step says which player we are, after which
+        // the ordinary exact tracking takes over.
+        await moves.Respond(new PacketEventArgs<MovePacket>
+        (
+            PacketSource.Server,
+            new MovePacket(EntityType.Player, 4242, 55, 60, 11),
+            "mv 1 4242 55 60 11"
+        )).ConfigureAwait(false);
+
+        var identified = state.OwnCharacterId == 4242;
+
+        await moves.Respond(new PacketEventArgs<MovePacket>
+        (
+            PacketSource.Server,
+            new MovePacket(EntityType.Player, 4242, 56, 61, 11),
+            "mv 1 4242 56 61 11"
+        )).ConfigureAwait(false);
+
+        var tracked = state.Position.X == 56 && state.Position.Y == 61;
+
+        // Once the server is telling us properly, our client's intent must not overrule it: a walk
+        // is sent before the step lands, so believing it would mean arriving early, every time.
+        await walks.Respond(new PacketEventArgs<WalkPacket>
+        (
+            PacketSource.Client,
+            new WalkPacket(80, 80, 0, 11),
+            "walk 80 80 0 11"
+        )).ConfigureAwait(false);
+
+        var serverWins = state.Position.X == 56 && state.Position.Y == 61;
+
+        return ("notre propre pas révèle qui nous sommes",
+            blind && learned && identified && tracked && serverWins);
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()

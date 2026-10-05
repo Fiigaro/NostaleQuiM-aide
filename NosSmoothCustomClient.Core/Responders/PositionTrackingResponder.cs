@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using NosSmooth.Core.Packets;
+using NosSmooth.Packets.Enums.Entities;
 using NosSmooth.Packets.Server.Entities;
 using NosSmooth.Packets.Server.Maps;
 using NosSmoothCustomClient.State;
@@ -60,6 +61,21 @@ public sealed class PositionTrackingResponder :
     public Task<Result> Respond(PacketEventArgs<MovePacket> packetArgs, CancellationToken ct = default)
     {
         var packet = packetArgs.Packet;
+
+        // The move that answers our own walk tells us which player we are, which is the one thing
+        // a session joined mid-game never learns otherwise - at only arrives on map entry.
+        if (_state.OwnCharacterId < 0
+            && packet.EntityType == EntityType.Player
+            && _state.LooksLikeOurOwnMove(packet.MapX, packet.MapY))
+        {
+            _state.SetOwnCharacterId(packet.EntityId);
+
+            _logger.LogInformation
+            (
+                "Controlled character id resolved as #{CharacterId} from the move answering our own walk.",
+                packet.EntityId
+            );
+        }
 
         if (_state.OwnCharacterId == packet.EntityId)
         {
