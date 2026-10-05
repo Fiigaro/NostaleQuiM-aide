@@ -61,7 +61,8 @@ public static class LocalConfigurationWriter
                         w.X,
                         w.Y,
                         w.ClickX,
-                        w.ClickY
+                        w.ClickY,
+                        w.PositionKnown
                     }),
 
                     // The route's click points only mean anything on the minimap they were recorded

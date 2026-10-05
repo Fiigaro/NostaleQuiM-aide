@@ -53,6 +53,14 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     // A destination that is not a waypoint, so the journey bookkeeping can tell it from one.
     private const int MonsterDestination = -2;
 
+    // The point we decided we had reached without being able to measure it, so the decision is not
+    // retaken every tick and undone by its own consequences.
+    private int _blindArrived = -1;
+
+    // How long a walk order is given to land when nothing can confirm that it did. Long enough to
+    // cross a room at walking speed, short enough not to stall a round.
+    private static readonly TimeSpan BlindWalkDuration = TimeSpan.FromSeconds(6);
+
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationBackgroundService"/> class.
     /// </summary>
@@ -504,16 +512,18 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         // coordinate rather than a way of saying so. Walk to the current waypoint: the character
         // moving is what makes the server report where it is, which is what makes arrival mean
         // anything at all from the next tick on.
-        if (!_state.HasPosition)
+        if (HasArrivedAt(waypoint, _state.WaypointIndex % waypoints.Count, distance))
         {
-            Decide(4, "navigation: position encore inconnue, on lance la marche vers {0}", waypoint);
-        }
-        else if (distance <= _options.WaypointArrivalRadius)
-        {
+            _blindArrived = -1;
+
             if (!TryAdvancePastArrivedWaypoints(position, ref waypoint, ref distance))
             {
                 return;
             }
+        }
+        else if (!_state.HasPosition)
+        {
+            Decide(4, "navigation: position encore inconnue, on lance la marche vers {0}", waypoint);
         }
 
         var index = _state.WaypointIndex % waypoints.Count;
@@ -652,7 +662,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         var waypoint = waypoints[index];
         var position = _state.Position;
         var distance = ProtocolStateManager.Distance(position.X, position.Y, waypoint.X, waypoint.Y);
-        var arrived = _state.HasPosition && distance <= _options.WaypointArrivalRadius;
+        var arrived = HasArrivedAt(waypoint, index, distance);
 
         // Just got here: the point deserves its full window before being judged finished, whatever
         // the clock said about the place we walked from.
@@ -673,6 +683,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         if (arrived)
         {
             var next = _state.AdvanceWaypoint();
+            _blindArrived = -1;
 
             // The clock starts again here, or the next point is judged finished before the character
             // has even set off for it and the whole round is walked through in seconds.
@@ -823,6 +834,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         }
 
         _lastMapSeen = map;
+        _blindArrived = -1;
 
         if (_rewardDueAt is not null && !_rewardTaken)
         {
@@ -909,7 +921,7 @@ public sealed class OrchestrationBackgroundService : BackgroundService
         var position = _state.Position;
         var distance = ProtocolStateManager.Distance(position.X, position.Y, exit.X, exit.Y);
 
-        if (_state.HasPosition && distance <= _options.WaypointArrivalRadius)
+        if (HasArrivedAt(exit, index, distance))
         {
             if (_options.RewardSequence.Count == 0)
             {
@@ -982,6 +994,52 @@ public sealed class OrchestrationBackgroundService : BackgroundService
     /// a character that has not moved at all for the whole re-issue window is one whose order went
     /// nowhere - a click the client dropped, or a point it will not walk to.
     /// </remarks>
+    /// <summary>
+    /// Whether the character has reached a waypoint.
+    /// </summary>
+    /// <param name="waypoint">The waypoint.</param>
+    /// <param name="index">Its index in the route.</param>
+    /// <param name="distance">How far it is, when that can be measured.</param>
+    /// <returns>True when the point counts as reached.</returns>
+    /// <remarks>
+    /// Measured when both halves exist, timed when they do not. A waypoint recorded without map
+    /// coordinates - which is every waypoint of a session the server never announced a position to -
+    /// can still be walked to, because walking is a click; what it cannot do is answer "am I there
+    /// yet" by distance. Falling back to the clock is what keeps such a route moving instead of
+    /// stuck on its first point forever, and it is sticky: a blind arrival undone on the next tick
+    /// would re-issue the walk, restart the clock and never let the round advance.
+    /// </remarks>
+    private bool HasArrivedAt(Waypoint waypoint, int index, int distance)
+    {
+        if (_state.HasPosition && waypoint.HasMapPosition)
+        {
+            return distance <= _options.WaypointArrivalRadius;
+        }
+
+        if (_blindArrived == index)
+        {
+            return true;
+        }
+
+        if (_walkingTo != index || DateTimeOffset.UtcNow - _walkedAt < BlindWalkDuration)
+        {
+            return false;
+        }
+
+        _blindArrived = index;
+
+        _logger.LogInformation
+        (
+            "Point {Index} {Waypoint} counted as reached after {Seconds:0.#}s: it carries no map "
+            + "coordinates, so nothing can confirm the arrival.",
+            index + 1,
+            waypoint,
+            BlindWalkDuration.TotalSeconds
+        );
+
+        return true;
+    }
+
     private bool ShouldReissueWalk(int index, Waypoint position)
     {
         var now = DateTimeOffset.UtcNow;

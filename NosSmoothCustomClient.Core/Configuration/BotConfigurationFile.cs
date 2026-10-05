@@ -215,6 +215,12 @@ public sealed class BotConfigurationFile
 
         /// <summary>Gets or sets the Y offset of the matching minimap point.</summary>
         public int? ClickY { get; set; }
+
+        /// <summary>Gets or sets whether the map coordinates were ever learned.</summary>
+        /// <remarks>
+        /// Defaults to true so a route written before this existed keeps meaning what it meant.
+        /// </remarks>
+        public bool PositionKnown { get; set; } = true;
     }
 
     /// <summary>One rotation entry.</summary>
@@ -391,7 +397,9 @@ public sealed class BotConfigurationFile
 
         if (file.Waypoints is { Count: > 0 })
         {
-            options.Waypoints = file.Waypoints.Select(w => new Waypoint(w.X, w.Y, w.ClickX, w.ClickY)).ToList();
+            options.Waypoints = file.Waypoints
+                .Select(w => new Waypoint(w.X, w.Y, w.ClickX, w.ClickY, w.PositionKnown))
+                .ToList();
             applied.Add($"{file.Waypoints.Count} waypoint(s), {options.Waypoints.Count(w => w.IsClickable)} clickable");
         }
 

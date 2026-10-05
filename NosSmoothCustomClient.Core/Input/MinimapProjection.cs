@@ -66,7 +66,7 @@ public sealed class MinimapProjection
     public static MinimapProjection? Build(IReadOnlyList<Waypoint> waypoints)
     {
         var points = waypoints
-            .Where(w => w.ClickX is not null && w.ClickY is not null)
+            .Where(w => w.ClickX is not null && w.ClickY is not null && w.HasMapPosition)
             .Select(w => (MapX: w.X, MapY: w.Y, PixelX: (double)w.ClickX!.Value, PixelY: (double)w.ClickY!.Value))
             .ToList();
 

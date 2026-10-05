@@ -151,7 +151,19 @@ public static class BotReadiness
             );
         }
 
-        return new ReadinessItem("Déplacement", true, $"{clickable} waypoint(s) prêts");
+        var blind = options.Waypoints.Count(w => !w.HasMapPosition);
+
+        // Walkable but not measurable, which changes what the loop can promise: it will click its
+        // way around the route and leave each point on a timer instead of on an arrival.
+        return blind == 0
+            ? new ReadinessItem("Déplacement", true, $"{clickable} waypoint(s) prêts")
+            : new ReadinessItem
+            (
+                "Déplacement",
+                true,
+                $"{clickable} waypoint(s) prêts, dont {blind} sans coordonnées de carte : "
+                + "le bot y va au clic et passe au suivant à la montre"
+            );
     }
 
     private static ReadinessItem Instance(BotOptions options, ProtocolStateManager state)

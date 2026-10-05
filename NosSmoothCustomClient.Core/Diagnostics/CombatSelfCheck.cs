@@ -72,7 +72,8 @@ public static class CombatSelfCheck
             ARecordedRunBecomesALaunch(),
             TheRecordingKeyIsFreeOfTheOthers(),
             ADeadHotKeyIsToldApartFromABrokenOne(),
-            await OurOwnWalkRevealsWhoWeAreAsync().ConfigureAwait(false)
+            await OurOwnWalkRevealsWhoWeAreAsync().ConfigureAwait(false),
+            await ARouteWithoutCoordinatesStillWalksAsync().ConfigureAwait(false)
         };
 
         var failed = 0;
@@ -792,6 +793,47 @@ public static class CombatSelfCheck
 
         return ("notre propre pas révèle qui nous sommes",
             blind && learned && identified && tracked && serverWins);
+    }
+
+    private static async Task<(string, bool)> ARouteWithoutCoordinatesStillWalksAsync()
+    {
+        var (loop, state, actuator, options) = BuildInstance();
+        options.SearchInterval = TimeSpan.FromHours(1);
+        options.RepositionAfter = TimeSpan.Zero;
+
+        // The route a session gets when the server never announced a position: the minimap clicks
+        // are there, because they are read off the screen, and the coordinates are not. Refusing to
+        // record those points left the route impossible to make at all; recording them as (0,0) made
+        // the loop measure zero cells to every one of them and stand still. Neither is acceptable.
+        options.Waypoints = new List<Waypoint>
+        {
+            new(0, 0, 1351, 100, PositionKnown: false),
+            new(0, 0, 1352, 80, PositionKnown: false),
+            new(0, 0, 1354, 36, PositionKnown: false)
+        };
+
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // It has to set off: a point it cannot measure is still a point it can click.
+        var setOff = actuator.Calls.Contains("waypoint:0");
+
+        // And it must not re-issue that same order forever, waiting for an arrival no packet will
+        // ever describe. With nothing able to confirm it, the clock decides.
+        typeof(OrchestrationBackgroundService)
+            .GetField("_walkedAt", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(loop, DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30));
+
+        actuator.Calls.Clear();
+
+        for (var tick = 0; tick < 4; tick++)
+        {
+            await loop.TickAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+
+        var wentOn = actuator.Calls.Contains("waypoint:1");
+
+        return ("une route sans coordonnées se marche quand même", setOff && wentOn);
     }
 
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()

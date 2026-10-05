@@ -374,21 +374,12 @@ public sealed class WaypointRecorder : BackgroundService
             return;
         }
 
-        // Refused, not warned about. A waypoint whose map coordinates are unknown is stored as
-        // (0,0), which is a real coordinate: the loop then measures zero cells to it, decides it has
-        // arrived, and walks nowhere - silently, with a route that looks perfectly well formed.
-        if (!_state.HasPosition)
-        {
-            _logger.LogWarning
-            (
-                "Nothing recorded: the server has not said where the character is yet. Take one step "
-                + "in game so a position arrives, then press F9 again."
-            );
-
-            return;
-        }
-
-        var position = _state.Position;
+        // Recorded either way, and never as (0,0). That pair is a real coordinate: a route carrying
+        // it looks perfectly well formed while the loop measures zero cells to every point, decides
+        // it has arrived everywhere and walks nowhere. A point whose position never arrived says so
+        // instead - it can still be clicked, which is what actually moves the character.
+        var known = _state.HasPosition;
+        var position = known ? _state.Position : default;
 
         lock (_sync)
         {
@@ -397,7 +388,16 @@ public sealed class WaypointRecorder : BackgroundService
                 _recordedOnMap = map;
             }
 
-            _recorded.Add(new Waypoint(position.X, position.Y, clickX, clickY));
+            _recorded.Add(new Waypoint(position.X, position.Y, clickX, clickY, known));
+        }
+
+        if (!known)
+        {
+            _logger.LogWarning
+            (
+                "Waypoint recorded without map coordinates: the server only announces them on map "
+                + "entry. The bot can walk there by clicking, but cannot tell when it has arrived."
+            );
         }
 
         Changed?.Invoke();
@@ -456,20 +456,17 @@ public sealed class WaypointRecorder : BackgroundService
             return (false, "la souris n'était pas dans la fenêtre du jeu");
         }
 
-        if (!_state.HasPosition)
-        {
-            return
-            (
-                false,
-                "position du personnage encore inconnue : fais un pas dans le jeu, elle sera lue "
-                + "au premier déplacement"
-            );
-        }
-
+        var known = _state.HasPosition;
         var position = _state.Position;
         Capture(x, y);
 
-        return (true, $"point ({position.X},{position.Y}) capturé, clic minimap ({x},{y})");
+        // The click is the half that moves the character, and it is always available. Refusing the
+        // whole capture because the other half is missing left the route impossible to record at
+        // all on a session the server never introduced itself to.
+        return known
+            ? (true, $"point ({position.X},{position.Y}) capturé, clic minimap ({x},{y})")
+            : (true, $"clic minimap ({x},{y}) capturé — position du personnage inconnue : le bot "
+                     + "ira cliquer là, mais ne saura pas qu'il est arrivé");
     }
 
     /// <summary>

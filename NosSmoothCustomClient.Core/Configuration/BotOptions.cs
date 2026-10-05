@@ -17,14 +17,25 @@ namespace NosSmoothCustomClient.Configuration;
 /// does not scroll with the character, which is what makes a recorded pixel still correct an hour
 /// later.
 /// </remarks>
-public readonly record struct Waypoint(int X, int Y, int? ClickX = null, int? ClickY = null)
+public readonly record struct Waypoint(int X, int Y, int? ClickX = null, int? ClickY = null, bool PositionKnown = true)
 {
     /// <summary>Gets a value indicating whether this waypoint can be reached by clicking.</summary>
     public bool IsClickable => ClickX is not null && ClickY is not null;
 
+    /// <summary>Gets a value indicating whether the map coordinates mean anything.</summary>
+    /// <remarks>
+    /// The two halves of a waypoint come from different places and one can arrive without the
+    /// other: the minimap pixel is read off the screen and always available, the map coordinates
+    /// come from the server and are only announced on map entry. Storing a missing position as
+    /// (0,0) is what makes a route look well formed and behave as though the character were already
+    /// standing on every point - so it is said outright instead, and the loop walks such a point by
+    /// clicking it and leaves it on a timer rather than on a distance it cannot measure.
+    /// </remarks>
+    public bool HasMapPosition => PositionKnown;
+
     /// <inheritdoc />
     public override string ToString()
-        => $"({X},{Y})";
+        => PositionKnown ? $"({X},{Y})" : ClickX is { } x && ClickY is { } y ? $"(?,?) clic ({x},{y})" : "(?,?)";
 }
 
 /// <summary>

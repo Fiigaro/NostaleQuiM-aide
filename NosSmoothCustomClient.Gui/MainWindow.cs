@@ -2274,7 +2274,8 @@ public sealed class MainWindow : Window
             var waypoint = shown[i];
             _routeList.Children.Add(new TextBlock
             {
-                Text = $"  {i + 1}.  carte {waypoint}   " +
+                Text = $"  {i + 1}.  " +
+                       (waypoint.HasMapPosition ? $"carte ({waypoint.X},{waypoint.Y})   " : "carte inconnue   ") +
                        (waypoint.IsClickable ? $"clic ({waypoint.ClickX},{waypoint.ClickY})" : "pas de point de clic"),
                 Foreground = waypoint.IsClickable ? Ink : Blocked,
                 FontSize = 11,
