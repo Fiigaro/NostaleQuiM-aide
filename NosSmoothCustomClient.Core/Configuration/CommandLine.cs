@@ -16,7 +16,10 @@ namespace NosSmoothCustomClient.Configuration;
 /// <param name="TestKey">A single key to test, instead of the full sequence.</param>
 /// <param name="RecordWaypoints">Whether to record a patrol route instead of running the bot.</param>
 /// <param name="Identify">Whether to flash each client window and exit.</param>
-public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey, bool RecordWaypoints, bool Identify, bool TransportRequested = true)
+/// <param name="TransportRequested">Whether a transport was actually asked for.</param>
+/// <param name="Only">The only packet headers to trace, when given.</param>
+/// <param name="Hide">The packet headers to drop from the trace, when given.</param>
+public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? ProcessId, bool ListProcesses, bool Trace, bool TestInput, bool Play, string? TestKey, bool RecordWaypoints, bool Identify, bool TransportRequested = true, string? Only = null, string? Hide = null)
 {
     /// <summary>
     /// Parses the arguments.
@@ -56,7 +59,9 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
             ReadValue(args, "--key"),
             Has(args, "--record-waypoints"),
             Has(args, "--identify"),
-            requested
+            requested,
+            ReadValue(args, "--only"),
+            ReadValue(args, "--hide")
         );
     }
 
@@ -108,6 +113,10 @@ public sealed record CommandLine(RunMode Mode, bool Paused, bool Verbose, int? P
              --identify        Flash each client window in turn, so you can see which pid is
                                which when several are running. Exits after.
              --trace           Log every raw packet in both directions. Always on with --pcap.
+             --only <headers>  Trace only these packet headers, e.g. --only "u_i sp_up guri".
+                               Separate with spaces or commas; quote the list.
+             --hide <headers>  Drop these headers from the trace instead. Defaults to the
+                               background traffic; pass --hide "" to see all of it.
              --record-waypoints
                                Record a patrol route: stand on a spot, point at it on the
                                minimap, press F9. F10 saves. Implies --pcap.

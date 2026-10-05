@@ -102,6 +102,8 @@ public static class Program
             return 2;
         }
 
+        BotServiceRegistration.ApplyTraceFilter(host.Services, cli);
+
         // Bind the transport before the loop starts: this is the step that reaches outside the
         // process, so its failures belong here as messages, not later as stack traces.
         if (!TransportBinder.TryBind(host.Services, cli.Mode, out var transportError))
@@ -131,6 +133,15 @@ public static class Program
         logger.LogInformation("Packet handler: {Handler}", services.GetRequiredService<IPacketHandler>().GetType().Name);
         logger.LogInformation("Client        : {Client}", services.GetRequiredService<INostaleClient>().GetType().Name);
         logger.LogInformation("Movement      : {Movement}", services.GetRequiredService<IMovementStrategy>().GetType().Name);
+
+        // Said out loud, because a narrowed trace and a dead transport look identical otherwise.
+        var filter = services.GetRequiredService<Diagnostics.PacketFilter>();
+        logger.LogInformation
+        (
+            "Trace         : {State} ({Filter})",
+            filter.TraceToLog ? "on" : "off (--trace to print it; the window shows it either way)",
+            filter.Describe()
+        );
         logger.LogInformation
         (
             "Thresholds    : HP <= {Hp:P0}, MP <= {Mp:P0}, attack every {Attack}ms, tick {Tick}ms",

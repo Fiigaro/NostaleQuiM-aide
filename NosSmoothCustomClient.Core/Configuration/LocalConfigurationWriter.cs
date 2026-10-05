@@ -78,6 +78,24 @@ public static class LocalConfigurationWriter
                     }),
                     options.AutoLaunchInstance,
                     options.RecordRunKey,
+
+                    // The headers worth watching on a given server are found once, packet by
+                    // packet; losing them at the next launch means finding them again.
+                    PacketTrace = new
+                    {
+                        options.PacketTrace.Only,
+                        options.PacketTrace.Hide,
+                        options.PacketTrace.ShowIncoming,
+                        options.PacketTrace.ShowOutgoing
+                    },
+                    SendMacros = options.SendMacros.Select(m => new
+                    {
+                        m.Name,
+                        Kind = m.Kind.ToString(),
+                        m.Body,
+                        m.Repetitions,
+                        m.IntervalMs
+                    }),
                     StartupSequence = options.StartupSequence.Select(s => new
                     {
                         s.Name,

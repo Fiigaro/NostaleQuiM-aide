@@ -16,6 +16,10 @@ dotnet run --project NosSmoothCustomClient.Gui -- --selftest  # test headless du
 dotnet run --project NosSmoothCustomClient -- --pcap
 dotnet run --project NosSmoothCustomClient -- --pcap --pid 1234
 
+# ne tracer que ce qu'on cherche, ou au contraire tout voir
+dotnet run --project NosSmoothCustomClient -- --pcap --only "u_i guri sp"
+dotnet run --project NosSmoothCustomClient -- --pcap --hide ""
+
 dotnet run --project NosSmoothCustomClient -- --help
 ```
 
@@ -52,6 +56,67 @@ Les reglages vivent dans `appsettings.json`, et la fenetre permet de cocher/deco
 chaque buff et d'ajuster leurs temps a chaud. Le bouton d'enregistrement ecrit
 `appsettings.local.json`, relu au lancement suivant.
 
+## Lire les paquets, et en renvoyer
+
+L'onglet **Paquets** de la fenêtre fait les deux moitiés d'un même travail : trouver la trame qui
+correspond à une action, puis la rejouer.
+
+### Filtrer la trace
+
+Une session NosTale, c'est surtout des déplacements et des apparitions. La trame cherchée — une
+amélioration, un clic de PNJ, un objet utilisé — passe une fois entre deux cents lignes de fond. Deux
+listes d'en-têtes décident de ce qui s'affiche :
+
+| Champ | Effet |
+|---|---|
+| **Seulement** | vide = tout ce qui n'est pas caché ; rempli, il est seul à décider |
+| **Cacher** | le bruit de fond, préréglé sur `mv in out cond eff st pairy rsfi fs char_sc` |
+| **Contenant** | filtre aussi sur les arguments, pas seulement l'en-tête |
+| **Sens** | ce que le client envoie est en `OUT`, ce qu'il reçoit en `IN` |
+
+Un en-tête nommé dans **Seulement** l'emporte sur **Cacher** : c'est une demande explicite. Vide
+**Cacher** pour retrouver le flux brut.
+
+Le filtrage se fait **à la lecture**, pas à la capture : tout est gardé dans un anneau de 4 000
+trames, donc élargir le filtre montre ce qui est déjà passé au lieu d'attendre la suite. L'en-tête
+est lu correctement dans les trois formes qui existent — `u_i 1 …`, `1043 walk …` (le numéro de
+séquence que le client met devant ses trames) et `#guri^710^1^1`.
+
+Les mêmes listes existent en ligne de commande, `--only "u_i guri"` et `--hide ""`, et se gardent
+dans `appsettings.json` sous `PacketTrace`.
+
+### Renvoyer ce qu'on a lu
+
+Certaines actions sont lentes parce que le client les met en scène, pas parce que le serveur
+l'exige : une tentative d'amélioration qui prend huit secondes à l'écran est une trame envoyée une
+fois. Fais l'action une fois à la main, mets la vue en pause, clique la ligne — elle se recopie dans
+le champ d'envoi — puis dis combien de fois et à quel rythme.
+
+| Quoi envoyer | Par où ça part | Disponible |
+|---|---|---|
+| **Paquet vers le serveur** | `INostaleClient.SendPacketAsync` | `--attach`, `--simulate` |
+| **Paquet vers le client** | `INostaleClient.ReceivePacketAsync` | `--attach`, `--simulate` |
+| **Touche du jeu** | le clavier, comme le bot | partout où une fenêtre est liée |
+| **Clic (`x,y`)** | la souris, comme le bot | partout où une fenêtre est liée |
+
+Une instruction par ligne ; `{i}` est remplacé par le numéro du passage, ce qui permet de balayer
+des slots. L'attente sépare deux envois — **le serveur garde ses propres délais**, donc envoyer plus
+vite qu'il n'accepte ne va pas plus vite et peut faire déconnecter. Un envoi s'interrompt au premier
+refus plutôt que de continuer à l'aveugle, et le bouton **Arrêter** le coupe en cours. Les envois se
+gardent sous un nom et sont écrits avec les autres réglages.
+
+### Ce que la capture ne peut pas faire
+
+**En `--pcap`, aucun paquet ne peut être envoyé.** Ce n'est pas un réglage : `NosSmooth.Pcap` laisse
+`SendPacketAsync` et `ReceivePacketAsync` non implémentées, parce qu'écrire dans une connexion TCP
+qu'on ne fait qu'écouter demanderait d'en usurper les numéros de séquence, ce qui casserait le flux
+du vrai client. La fenêtre le dit et éteint le bouton plutôt que de laisser cliquer sur une erreur.
+
+En capture, ce qui se répète est donc une **touche** ou un **clic** — les mêmes chemins que le bot
+utilise déjà. Pour l'amélioration d'une SP, cela veut dire relever une fois les coordonnées du
+bouton, puis les rejouer : `467,460`, cinquante fois, toutes les 1 200 ms. Pour envoyer la trame
+elle-même, il faut `--attach`.
+
 ## Transports
 
 | Drapeau | Ce qu'il fait | Injection | Patterns mémoire |
@@ -61,10 +126,10 @@ chaque buff et d'ajuster leurs temps a chaud. Le bouton d'enregistrement ecrit
 | `--attach` | Se lie au processus en mémoire (Windows x86) | oui | oui |
 
 `--pcap` est la voie de calibration : il contourne entièrement le scan mémoire, qui est le point de
-blocage sur un client modifié. Il **démarre toujours en lecture seule**, parce qu'une trame émise par
-capture voyage à côté de celle du client et arrive donc en double côté serveur — ce que l'auteur de
-NosSmooth documente comme détectable. `P` lève la pause si tu acceptes ce coût en connaissance de
-cause.
+blocage sur un client modifié. Il **démarre toujours en lecture seule**, et pour deux raisons
+différentes qu'il vaut mieux ne pas confondre. La boucle démarre en pause, et `P` la relance : c'est
+ce qui décide si les touches partent. L'envoi de paquets, lui, n'est pas une question de pause —
+`NosSmooth.Pcap` ne l'implémente pas du tout, et aucun réglage ne le rend possible.
 
 Prérequis : Npcap sur Windows, et un processus élevé.
 
