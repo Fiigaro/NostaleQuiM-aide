@@ -735,16 +735,30 @@ public static class CombatSelfCheck
         // known about where we are or which of the players on screen we even are.
         var blind = !state.HasPosition && state.OwnCharacterId < 0;
 
-        // One step. The walk packet is ours by construction - it came out of the client we are
-        // listening to - so it is a position even before the server says anything.
-        await walks.Respond(new PacketEventArgs<WalkPacket>
+        // One step, read off the raw line rather than the deserialised packet: whether a client's
+        // own packets are parsed and dispatched like the server's belongs to the transport, and
+        // this must not depend on it. The raw line is handed out whatever happens.
+        await walks.Respond(new PacketEventArgs
         (
             PacketSource.Client,
-            new WalkPacket(55, 60, 1, 11),
             "walk 55 60 1 11"
         )).ConfigureAwait(false);
 
         var learned = state.HasPosition && state.Position.X == 55 && state.Position.Y == 60;
+
+        // A client line may carry a sequence number in front of the header, and which form arrives
+        // is not ours to choose.
+        var numbered = OwnMovementResponder.TryReadWalk("61234 walk 70 80 0 11", out var nx, out var ny)
+                       && nx == 70 && ny == 80;
+
+        // And a server line that merely looks similar is not ours.
+        await walks.Respond(new PacketEventArgs
+        (
+            PacketSource.Server,
+            "walk 99 99 0 11"
+        )).ConfigureAwait(false);
+
+        learned &= state.Position.X == 55 && numbered;
 
         // And the move the server broadcasts for that step says which player we are, after which
         // the ordinary exact tracking takes over.
@@ -768,10 +782,9 @@ public static class CombatSelfCheck
 
         // Once the server is telling us properly, our client's intent must not overrule it: a walk
         // is sent before the step lands, so believing it would mean arriving early, every time.
-        await walks.Respond(new PacketEventArgs<WalkPacket>
+        await walks.Respond(new PacketEventArgs
         (
             PacketSource.Client,
-            new WalkPacket(80, 80, 0, 11),
             "walk 80 80 0 11"
         )).ConfigureAwait(false);
 
