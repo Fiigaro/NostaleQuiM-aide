@@ -325,7 +325,21 @@ class InterfaceBot(tk.Tk):
         self._champ(clics, 1, 1, "Y :", "TS_RECOMP1_Y", largeur=8)
         self._champ(clics, 2, 0, "Récompense allié 2 - X :", "TS_RECOMP2_X", largeur=8)
         self._champ(clics, 2, 1, "Y :", "TS_RECOMP2_Y", largeur=8)
-        self._champ(clics, 3, 0, "Délai après clic récompense (s) :", "TS_DELAI_RECOMPENSE", largeur=8)
+        self._champ(clics, 3, 0, "Récompense principal - X :", "TS_RECOMP0_X", largeur=8)
+        self._champ(clics, 3, 1, "Y :", "TS_RECOMP0_Y", largeur=8)
+        self._champ(clics, 4, 0, "Délai après clic récompense (s) :", "TS_DELAI_RECOMPENSE", largeur=8)
+
+        detection = ttk.LabelFrame(cadre, text="Détection de l'écran de récompense (pixel à l'écran)")
+        detection.pack(fill="x", padx=8, pady=4)
+        self._champ(detection, 0, 0, "Pixel - X :", "TS_DET_X", largeur=8)
+        self._champ(detection, 0, 1, "Y :", "TS_DET_Y", largeur=8)
+        self._champ(detection, 1, 0, "Couleur R, G, B :", "TS_DET_COULEUR", largeur=14)
+        self._champ(detection, 1, 1, "Tolérance :", "TS_DET_TOLERANCE", largeur=8)
+        self._champ(detection, 2, 0, "Attente après récompenses (s) :", "TS_DELAI_APRES_RECOMP", largeur=8)
+        self.vars["TS_RELANCER"] = tk.BooleanVar(value=False)
+        ttk.Checkbutton(detection, text="Relancer l'entrée en TS après les récompenses (sinon le bot s'arrête)",
+                        variable=self.vars["TS_RELANCER"]).grid(
+            row=3, column=0, columnspan=4, sticky="w", padx=8, pady=4)
 
         point = ttk.LabelFrame(cadre, text="Point d'arrivée du perso principal")
         point.pack(fill="x", padx=8, pady=4)
@@ -385,6 +399,13 @@ class InterfaceBot(tk.Tk):
             "TS_RECOMP2_X": "%d" % recomp[1][0],
             "TS_RECOMP2_Y": "%d" % recomp[1][1],
             "TS_DELAI_RECOMPENSE": "%g" % ts["DELAI_RECOMPENSE"],
+            "TS_RECOMP0_X": "%d" % ts["RECOMPENSE_PRINCIPAL_CLIC"][0],
+            "TS_RECOMP0_Y": "%d" % ts["RECOMPENSE_PRINCIPAL_CLIC"][1],
+            "TS_DET_X": "%d" % ts["RECOMPENSE_PIXEL"][0],
+            "TS_DET_Y": "%d" % ts["RECOMPENSE_PIXEL"][1],
+            "TS_DET_COULEUR": ", ".join("%d" % c for c in ts["RECOMPENSE_COULEUR"]),
+            "TS_DET_TOLERANCE": "%d" % ts["RECOMPENSE_TOLERANCE"],
+            "TS_DELAI_APRES_RECOMP": "%g" % ts["DELAI_APRES_RECOMPENSE"],
             "TS_TOUCHE_ENTREE": ts["TOUCHE_ENTREE"],
             "TS_INTERVALLE": "%g" % ts["INTERVALLE_DOUBLE_APPUI"],
             "TS_TOUCHE_VALIDER": ts["TOUCHE_VALIDER"],
@@ -400,6 +421,7 @@ class InterfaceBot(tk.Tk):
 
         self.vars["BOUCLER_CHEMIN"].set(bool(config["BOUCLER_CHEMIN"]))
         self.vars["TS_ACTIVER"].set(bool(ts["ACTIVER"]))
+        self.vars["TS_RELANCER"].set(bool(ts["RELANCER_APRES_RECOMPENSE"]))
         self.champ_chemin.delete("1.0", "end")
         self.champ_chemin.insert("1.0", formater_chemin(config["PATH"]))
 
@@ -482,6 +504,14 @@ class InterfaceBot(tk.Tk):
         config["DELAI_DEMARRAGE"] = nombre("DELAI_DEMARRAGE", "Compte à rebours", entier=True, mini=0)
         config["BLOCAGE_MAX"] = nombre("BLOCAGE_MAX", "Seuil anti-blocage", entier=True, mini=1)
 
+        try:
+            couleur = [int(c) for c in self.vars["TS_DET_COULEUR"].get().replace(";", ",").split(",")]
+            if len(couleur) != 3 or any(c < 0 or c > 255 for c in couleur):
+                raise ValueError
+        except ValueError:
+            erreurs.append("Couleur de détection : trois nombres 0-255, ex. 12, 148, 230.")
+            couleur = [0, 0, 0]
+
         config["TS"] = {
             "ACTIVER": bool(self.vars["TS_ACTIVER"].get()),
             "FENETRE_PRINCIPALE": self.vars["TS_FENETRE_PRINCIPALE"].get().strip(),
@@ -495,6 +525,16 @@ class InterfaceBot(tk.Tk):
                 [nombre("TS_RECOMP2_X", "Récompense allié 2 X", entier=True, mini=0),
                  nombre("TS_RECOMP2_Y", "Récompense allié 2 Y", entier=True, mini=0)]],
             "DELAI_RECOMPENSE": nombre("TS_DELAI_RECOMPENSE", "Délai récompense", mini=0),
+            "RECOMPENSE_PRINCIPAL_CLIC": [
+                nombre("TS_RECOMP0_X", "Récompense principal X", entier=True, mini=0),
+                nombre("TS_RECOMP0_Y", "Récompense principal Y", entier=True, mini=0)],
+            "RECOMPENSE_PIXEL": [nombre("TS_DET_X", "Pixel détection X", entier=True, mini=0),
+                                 nombre("TS_DET_Y", "Pixel détection Y", entier=True, mini=0)],
+            "RECOMPENSE_COULEUR": couleur,
+            "RECOMPENSE_TOLERANCE": nombre("TS_DET_TOLERANCE", "Tolérance couleur",
+                                           entier=True, mini=0, maxi=255),
+            "DELAI_APRES_RECOMPENSE": nombre("TS_DELAI_APRES_RECOMP", "Attente après récompenses", mini=0),
+            "RELANCER_APRES_RECOMPENSE": bool(self.vars["TS_RELANCER"].get()),
             "TOUCHE_ENTREE": self.vars["TS_TOUCHE_ENTREE"].get().strip(),
             "INTERVALLE_DOUBLE_APPUI": nombre("TS_INTERVALLE", "Intervalle double appui",
                                               mini=0.02, maxi=0.45),

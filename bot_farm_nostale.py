@@ -106,6 +106,14 @@ CONFIG_DEFAUT = {
         "PRINCIPAL_CLIC_START": [0, 0], # Pixels écran du bouton bleu Start (perso principal)
         "RECOMPENSE_CLICS_ALLIES": [[0, 0], [0, 0]],  # Pixels écran du clic de récompense, un par allié
         "DELAI_RECOMPENSE": 0.8,        # Attente après chaque clic de récompense
+        "RECOMPENSE_PRINCIPAL_CLIC": [0, 0],   # Pixels écran du clic de récompense (principal)
+        # Détection de l'écran de récompense : un pixel de la fenêtre de récompense
+        # dont la couleur est stable (relevée avec outil_coordonnees.py).
+        "RECOMPENSE_PIXEL": [0, 0],
+        "RECOMPENSE_COULEUR": [0, 0, 0],        # R, G, B attendus sur ce pixel
+        "RECOMPENSE_TOLERANCE": 12,             # Écart max accepté par canal
+        "DELAI_APRES_RECOMPENSE": 3.0,          # Attente une fois toutes les récompenses prises
+        "RELANCER_APRES_RECOMPENSE": False,     # True = rejoue l'entrée en TS (sinon arrêt du bot)
         "TOUCHE_ENTREE": "c",           # Touche pressée deux fois
         "INTERVALLE_DOUBLE_APPUI": 0.2, # Entre les deux appuis (DOIT rester < 0.5 s)
         "TOUCHE_VALIDER": "enter",
@@ -123,6 +131,11 @@ CONFIG_DEFAUT = {
 
 VK_ECHAP = 0x1B   # Code virtuel de la touche Échap
 _user32 = ctypes.windll.user32 if sys.platform == "win32" else None
+if _user32 is not None:
+    try:
+        _user32.SetProcessDPIAware()   # Coordonnées en vrais pixels, même avec mise à l'échelle Windows
+    except Exception:
+        pass
 
 
 _SW_RESTORE = 9
@@ -168,6 +181,29 @@ def mettre_au_premier_plan(hwnd):
     _user32.keybd_event(0x12, 0, 0x0002, 0)
     _user32.SetForegroundWindow(hwnd)
     return _user32.GetForegroundWindow() == hwnd
+
+
+def pixel_ecran(x, y):
+    """Couleur (R, G, B) du pixel écran (x, y), ou None si illisible."""
+    if sys.platform != "win32":
+        return None
+    gdi32 = ctypes.windll.gdi32
+    hdc = _user32.GetDC(0)
+    try:
+        couleur = gdi32.GetPixel(hdc, int(x), int(y))
+    finally:
+        _user32.ReleaseDC(0, hdc)
+    if couleur == 0xFFFFFFFF:          # CLR_INVALID : hors écran
+        return None
+    return (couleur & 0xFF, (couleur >> 8) & 0xFF, (couleur >> 16) & 0xFF)
+
+
+def position_souris():
+    class _Point(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+    point = _Point()
+    _user32.GetCursorPos(ctypes.byref(point))
+    return point.x, point.y
 
 
 class ArretDemande(Exception):
@@ -238,6 +274,10 @@ def valider_config(config):
             problemes.append("Espace-temps : l'intervalle du double appui doit être < 0,5 s.")
         if not ts["POINT"] or tuple(ts["POINT"]) == (0, 0):
             problemes.append("Espace-temps : le point d'arrivée n'est pas renseigné.")
+        if tuple(ts["RECOMPENSE_PRINCIPAL_CLIC"]) == (0, 0):
+            problemes.append("Espace-temps : le clic de récompense du perso principal n'est pas renseigné.")
+        if tuple(ts["RECOMPENSE_PIXEL"]) == (0, 0):
+            problemes.append("Espace-temps : le pixel de détection de l'écran de récompense n'est pas renseigné.")
         if tuple(ts["PRINCIPAL_CLIC_START"]) == (0, 0):
             problemes.append("Espace-temps : les coordonnées du bouton Start ne sont pas renseignées.")
 
@@ -691,6 +731,36 @@ class BotFarm:
         self.pause(ts["DELAI_APRES_ENTREE"])
         return True
 
+    def recompense_affichee(self):
+        """True si l'écran de récompense est à l'écran (pixel de détection)."""
+        ts = self.cfg["TS"]
+
+        def correspond():
+            couleur = pixel_ecran(*ts["RECOMPENSE_PIXEL"])
+            return couleur is not None and all(
+                abs(a - b) <= ts["RECOMPENSE_TOLERANCE"]
+                for a, b in zip(couleur, ts["RECOMPENSE_COULEUR"]))
+
+        # Double lecture à 0,25 s d'écart : écarte un éclair d'animation.
+        if not correspond():
+            return False
+        self.pause(0.25)
+        return correspond()
+
+    def phase_recompenses(self):
+        """Le principal prend sa récompense, puis les alliés prennent les leurs."""
+        ts = self.cfg["TS"]
+        self.log("[Espace-temps] Écran de récompense détecté.")
+        principal = trouver_fenetre(ts["FENETRE_PRINCIPALE"]) if ts["FENETRE_PRINCIPALE"] else None
+        principal = principal or fenetre_premier_plan()
+        x, y = ts["RECOMPENSE_PRINCIPAL_CLIC"]
+        self.focaliser(principal, "Perso principal")
+        self.cliquer_a(x, y)
+        self.log("[Espace-temps] Perso principal : récompense choisie (clic en %d, %d)." % (x, y))
+        self.pause(ts["DELAI_RECOMPENSE"])
+        self.choisir_recompenses_allies()
+        self.pause(ts["DELAI_APRES_RECOMPENSE"])
+
     # --- BOUCLE PRINCIPALE -------------------------------------------------
     def boucle_principale(self):
         cfg = self.cfg
@@ -707,6 +777,18 @@ class BotFarm:
 
         while True:
             self.verifier_arret()
+
+            # --- ESPACE-TEMPS : fin de map -> récompenses ------------------
+            if cfg["TS"]["ACTIVER"] and self.recompense_affichee():
+                self.phase_recompenses()
+                if not cfg["TS"]["RELANCER_APRES_RECOMPENSE"]:
+                    self.log("[Espace-temps] Run terminé - arrêt du bot.")
+                    return
+                if not self.sequence_entree_ts():
+                    self.log("[Espace-temps] Séquence d'entrée échouée - le bot s'arrête.")
+                    return
+                index_point = 0
+                continue
 
             # --- ÉTAPE 1 : SÉCURITÉ POTIONS -------------------------------
             if self.gerer_potions() == "mort":

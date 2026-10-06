@@ -12,6 +12,8 @@ au code.
 |---|---|
 | `bot_gui.py` | Interface graphique : les cases de réglage + le bouton Lancer |
 | `bot_farm_nostale.py` | Moteur du bot (utilisable seul en ligne de commande) |
+| `outil_coordonnees.py` | Relève en direct position de la souris et couleur du pixel (réglages TS) |
+| `TUTO_ESPACE_TEMPS.md` | Tuto de mise en place du bot Espace-temps |
 | `build.bat` | Compile `BotFarmNostale.exe` |
 | `config_bot.json` | Tes réglages, créé au premier enregistrement |
 
@@ -74,9 +76,8 @@ la boucle de farm :
 4. marche (lecture mémoire) jusqu'au **point précis** X, Y, puis **Entrée** ;
 5. la boucle de farm prend le relais pour clear la map.
 
-En fin de map, `choisir_recompenses_allies()` fait choisir leur récompense aux 2
-alliés (clic aux coordonnées réglées pour chacun) puis revient au principal. À
-appeler juste après le choix de récompense du perso principal.
+En fin de map, l'écran de récompense est détecté par la couleur d'un pixel ; le
+principal puis chaque allié cliquent leur récompense. Voir `TUTO_ESPACE_TEMPS.md`.
 
 Chaque perso est une fenêtre NosTale : renseigne le titre (ou une partie) de
 chacune. « Perso principal » vide = la fenêtre au premier plan au lancement.
