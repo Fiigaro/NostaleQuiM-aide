@@ -145,6 +145,7 @@ class InterfaceBot(tk.Tk):
         self._onglet_offsets(onglets)
         self._onglet_combat(onglets)
         self._onglet_chemin(onglets)
+        self._onglet_ts(onglets)
 
         # --- Barre de boutons --------------------------------------------
         barre = ttk.Frame(self)
@@ -288,9 +289,50 @@ class InterfaceBot(tk.Tk):
         self._champ(divers, 0, 0, "Compte à rebours (s) :", "DELAI_DEMARRAGE", largeur=8)
         self._champ(divers, 1, 0, "Seuil anti-blocage :", "BLOCAGE_MAX", largeur=8)
 
+    def _onglet_ts(self, onglets):
+        cadre = ttk.Frame(onglets)
+        onglets.add(cadre, text="  Espace-temps  ")
+
+        self.vars["TS_ACTIVER"] = tk.BooleanVar(value=False)
+        ttk.Checkbutton(cadre, text="Activer la séquence d'entrée en espace-temps au lancement",
+                        variable=self.vars["TS_ACTIVER"]).pack(anchor="w", padx=10, pady=(10, 2))
+        ttk.Label(cadre, foreground="#555555", justify="left",
+                  text=("Ordre : perso principal (C C + Entrée) -> alliés (C C + Entrée) -> retour au "
+                        "principal -> marche jusqu'au point -> Entrée -> clear de la map.")
+                  ).pack(anchor="w", padx=12, pady=(0, 6))
+
+        fenetres = ttk.LabelFrame(cadre, text="Fenêtres des personnages (titre ou partie du titre)")
+        fenetres.pack(fill="x", padx=8, pady=4)
+        self._champ(fenetres, 0, 0, "Perso principal :", "TS_FENETRE_PRINCIPALE", largeur=26)
+        ttk.Label(fenetres, text="vide = fenêtre au premier plan au lancement",
+                  foreground="#555555").grid(row=0, column=2, sticky="w", padx=4)
+        self._champ(fenetres, 1, 0, "Allié 1 :", "TS_ALLIE_1", largeur=26)
+        self._champ(fenetres, 2, 0, "Allié 2 :", "TS_ALLIE_2", largeur=26)
+        self.vars["TS_PRINCIPAL_ENTRE"] = tk.BooleanVar(value=True)
+        ttk.Checkbutton(fenetres, text="Le perso principal fait aussi C C + Entrée",
+                        variable=self.vars["TS_PRINCIPAL_ENTRE"]).grid(
+            row=3, column=0, columnspan=3, sticky="w", padx=8, pady=4)
+
+        touches = ttk.LabelFrame(cadre, text="Touches et délais")
+        touches.pack(fill="x", padx=8, pady=4)
+        self._champ(touches, 0, 0, "Touche pressée 2 fois :", "TS_TOUCHE_ENTREE", largeur=8)
+        self._champ(touches, 0, 1, "Intervalle (s, < 0,5) :", "TS_INTERVALLE", largeur=8)
+        self._champ(touches, 1, 0, "Touche de validation :", "TS_TOUCHE_VALIDER", largeur=8)
+        self._champ(touches, 1, 1, "Délai après Entrée (s) :", "TS_DELAI_APRES_ENTREE", largeur=8)
+        self._champ(touches, 2, 0, "Délai changement fenêtre (s) :", "TS_DELAI_FOCUS", largeur=8)
+
+        point = ttk.LabelFrame(cadre, text="Point d'arrivée du perso principal")
+        point.pack(fill="x", padx=8, pady=4)
+        self._champ(point, 0, 0, "X :", "TS_POINT_X", largeur=8)
+        self._champ(point, 0, 1, "Y :", "TS_POINT_Y", largeur=8)
+        self._champ(point, 1, 0, "Timeout (s) :", "TS_POINT_TIMEOUT", largeur=8)
+        self._champ(point, 1, 1, "Pause avant Entrée (s) :", "TS_DELAI_AVANT_VALIDATION", largeur=8)
+
     # --- Configuration <-> widgets ---------------------------------------
     def appliquer_config(self, config):
         """Remplit tous les champs depuis une configuration."""
+        ts = config["TS"]
+        allies = (list(ts["FENETRES_ALLIES"]) + ["", ""])[:2]
         valeurs = {
             "PROCESS_NAME": config["PROCESS_NAME"],
             "MODULE_NAME": config["MODULE_NAME"],
@@ -326,11 +368,25 @@ class InterfaceBot(tk.Tk):
             "CASE_H": "%d" % config["TILE_SIZE_PX"][1],
             "DELAI_DEMARRAGE": "%d" % config["DELAI_DEMARRAGE"],
             "BLOCAGE_MAX": "%d" % config["BLOCAGE_MAX"],
+            "TS_FENETRE_PRINCIPALE": ts["FENETRE_PRINCIPALE"],
+            "TS_ALLIE_1": allies[0],
+            "TS_ALLIE_2": allies[1],
+            "TS_TOUCHE_ENTREE": ts["TOUCHE_ENTREE"],
+            "TS_INTERVALLE": "%g" % ts["INTERVALLE_DOUBLE_APPUI"],
+            "TS_TOUCHE_VALIDER": ts["TOUCHE_VALIDER"],
+            "TS_DELAI_APRES_ENTREE": "%g" % ts["DELAI_APRES_ENTREE"],
+            "TS_DELAI_FOCUS": "%g" % ts["DELAI_FOCUS"],
+            "TS_POINT_X": "%d" % ts["POINT"][0],
+            "TS_POINT_Y": "%d" % ts["POINT"][1],
+            "TS_POINT_TIMEOUT": "%g" % ts["POINT_TIMEOUT"],
+            "TS_DELAI_AVANT_VALIDATION": "%g" % ts["DELAI_AVANT_VALIDATION"],
         }
         for cle, valeur in valeurs.items():
             self.vars[cle].set(valeur)
 
         self.vars["BOUCLER_CHEMIN"].set(bool(config["BOUCLER_CHEMIN"]))
+        self.vars["TS_ACTIVER"].set(bool(ts["ACTIVER"]))
+        self.vars["TS_PRINCIPAL_ENTRE"].set(bool(ts["PRINCIPAL_ENTRE"]))
         self.champ_chemin.delete("1.0", "end")
         self.champ_chemin.insert("1.0", formater_chemin(config["PATH"]))
 
@@ -412,6 +468,27 @@ class InterfaceBot(tk.Tk):
                                   nombre("CASE_H", "Hauteur case", entier=True, mini=1)]
         config["DELAI_DEMARRAGE"] = nombre("DELAI_DEMARRAGE", "Compte à rebours", entier=True, mini=0)
         config["BLOCAGE_MAX"] = nombre("BLOCAGE_MAX", "Seuil anti-blocage", entier=True, mini=1)
+
+        config["TS"] = {
+            "ACTIVER": bool(self.vars["TS_ACTIVER"].get()),
+            "FENETRE_PRINCIPALE": self.vars["TS_FENETRE_PRINCIPALE"].get().strip(),
+            "FENETRES_ALLIES": [self.vars["TS_ALLIE_1"].get().strip(),
+                                self.vars["TS_ALLIE_2"].get().strip()],
+            "PRINCIPAL_ENTRE": bool(self.vars["TS_PRINCIPAL_ENTRE"].get()),
+            "TOUCHE_ENTREE": self.vars["TS_TOUCHE_ENTREE"].get().strip(),
+            "INTERVALLE_DOUBLE_APPUI": nombre("TS_INTERVALLE", "Intervalle double appui",
+                                              mini=0.02, maxi=0.45),
+            "TOUCHE_VALIDER": self.vars["TS_TOUCHE_VALIDER"].get().strip(),
+            "DELAI_FOCUS": nombre("TS_DELAI_FOCUS", "Délai changement fenêtre", mini=0),
+            "DELAI_APRES_ENTREE": nombre("TS_DELAI_APRES_ENTREE", "Délai après Entrée", mini=0),
+            "POINT": [nombre("TS_POINT_X", "Point TS X", entier=True),
+                      nombre("TS_POINT_Y", "Point TS Y", entier=True)],
+            "POINT_TIMEOUT": nombre("TS_POINT_TIMEOUT", "Timeout point", mini=1),
+            "DELAI_AVANT_VALIDATION": nombre("TS_DELAI_AVANT_VALIDATION",
+                                             "Pause avant Entrée", mini=0),
+        }
+        if not config["TS"]["TOUCHE_ENTREE"] or not config["TS"]["TOUCHE_VALIDER"]:
+            erreurs.append("Espace-temps : touches C et Entrée à renseigner.")
 
         return config, erreurs
 

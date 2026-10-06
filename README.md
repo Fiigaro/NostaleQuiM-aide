@@ -63,6 +63,22 @@ souvent des `short` (2 octets) plutôt que des `int`.
 5. **Déplacement** — uniquement si aucune cible : avance d'un pas vers le point
    courant du chemin. Point validé à moins de N cases, puis point suivant.
 
+## Espace-temps (TS) : séquence d'entrée
+
+Onglet **Espace-temps** (option « Activer »). Joué une fois au lancement, avant
+la boucle de farm :
+
+1. perso principal : touche **C deux fois** (intervalle réglable, < 0,5 s) puis **Entrée** ;
+2. chacun des 2 alliés : passage sur sa fenêtre, **C C** puis **Entrée** ;
+3. retour sur la fenêtre du perso principal ;
+4. marche (lecture mémoire) jusqu'au **point précis** X, Y, puis **Entrée** ;
+5. la boucle de farm prend le relais pour clear la map.
+
+Chaque perso est une fenêtre NosTale : renseigne le titre (ou une partie) de
+chacune. « Perso principal » vide = la fenêtre au premier plan au lancement.
+Si une étape échoue (fenêtre introuvable, point non atteint dans le timeout),
+le bot s'arrête au lieu de farmer au mauvais endroit.
+
 ## Calibrage du déplacement
 
 En mode `CLICK` (défaut, standard NosTale), la case visée est projetée en pixels

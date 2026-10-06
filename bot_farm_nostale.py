@@ -93,6 +93,25 @@ CONFIG_DEFAUT = {
     "MOVE_KEYS": {"HAUT": "up", "BAS": "down", "GAUCHE": "left", "DROITE": "right"},
     "MOVE_KEY_DURATION": 0.35,             # Durée d'appui sur une flèche
 
+    # --- Espace-temps (TS) : séquence d'entrée ----------------------------
+    # Ordre : perso principal -> alliés (C C puis Entrée) -> retour au principal
+    # -> marche jusqu'au point précis -> Entrée -> le farm peut clear la map.
+    "TS": {
+        "ACTIVER": False,
+        "FENETRE_PRINCIPALE": "",       # Titre (ou partie) de la fenêtre du perso principal.
+                                        # Vide = la fenêtre au premier plan au lancement.
+        "FENETRES_ALLIES": ["", ""],    # Titres (ou parties) des fenêtres des 2 autres persos
+        "PRINCIPAL_ENTRE": True,        # Le perso principal fait lui aussi C C + Entrée
+        "TOUCHE_ENTREE": "c",           # Touche pressée deux fois
+        "INTERVALLE_DOUBLE_APPUI": 0.2, # Entre les deux appuis (DOIT rester < 0.5 s)
+        "TOUCHE_VALIDER": "enter",
+        "DELAI_FOCUS": 0.5,             # Attente après un changement de fenêtre
+        "DELAI_APRES_ENTREE": 1.5,      # Attente après Entrée (chargement / mise en groupe)
+        "POINT": [0, 0],                # Point précis de la carte où appuyer sur Entrée
+        "POINT_TIMEOUT": 60.0,          # Abandon si le point n'est pas atteint
+        "DELAI_AVANT_VALIDATION": 0.5,  # Pause une fois arrivé au point, avant Entrée
+    },
+
     # --- Divers -----------------------------------------------------------
     "DELAI_DEMARRAGE": 5,   # Compte à rebours avant lancement (secondes)
     "BLOCAGE_MAX": 5,       # Itérations sans bouger avant tentative de déblocage
@@ -100,6 +119,51 @@ CONFIG_DEFAUT = {
 
 VK_ECHAP = 0x1B   # Code virtuel de la touche Échap
 _user32 = ctypes.windll.user32 if sys.platform == "win32" else None
+
+
+_SW_RESTORE = 9
+
+
+def _titre_fenetre(hwnd):
+    longueur = _user32.GetWindowTextLengthW(hwnd)
+    tampon = ctypes.create_unicode_buffer(longueur + 1)
+    _user32.GetWindowTextW(hwnd, tampon, longueur + 1)
+    return tampon.value
+
+
+def trouver_fenetre(titre):
+    """Handle de la première fenêtre visible dont le titre contient `titre`."""
+    if _user32 is None or not titre:
+        return None
+    trouvees = []
+    type_callback = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def callback(hwnd, _):
+        if _user32.IsWindowVisible(hwnd) and titre.lower() in _titre_fenetre(hwnd).lower():
+            trouvees.append(hwnd)
+            return False
+        return True
+
+    _user32.EnumWindows(type_callback(callback), 0)
+    return trouvees[0] if trouvees else None
+
+
+def fenetre_premier_plan():
+    return _user32.GetForegroundWindow() if _user32 is not None else None
+
+
+def mettre_au_premier_plan(hwnd):
+    """Amène la fenêtre au premier plan. Retourne True si Windows l'a acceptée."""
+    if _user32 is None or not hwnd:
+        return False
+    if _user32.IsIconic(hwnd):
+        _user32.ShowWindow(hwnd, _SW_RESTORE)
+    # Windows refuse SetForegroundWindow sans une « activité clavier » récente :
+    # un appui Alt fantôme lève cette restriction.
+    _user32.keybd_event(0x12, 0, 0, 0)
+    _user32.keybd_event(0x12, 0, 0x0002, 0)
+    _user32.SetForegroundWindow(hwnd)
+    return _user32.GetForegroundWindow() == hwnd
 
 
 class ArretDemande(Exception):
@@ -161,6 +225,15 @@ def valider_config(config):
 
     if not config["ATTACK_KEYS"]:
         problemes.append("Aucune touche d'attaque définie.")
+
+    ts = config["TS"]
+    if ts["ACTIVER"]:
+        if len([t for t in ts["FENETRES_ALLIES"] if t.strip()]) == 0:
+            problemes.append("Espace-temps : renseigne le titre de la fenêtre des persos alliés.")
+        if ts["INTERVALLE_DOUBLE_APPUI"] >= 0.5:
+            problemes.append("Espace-temps : l'intervalle du double appui doit être < 0,5 s.")
+        if not ts["POINT"] or tuple(ts["POINT"]) == (0, 0):
+            problemes.append("Espace-temps : le point d'arrivée n'est pas renseigné.")
 
     if sys.platform != "win32":
         problemes.append("Ce bot nécessite Windows (pymem et pydirectinput utilisent l'API Win32).")
@@ -448,6 +521,127 @@ class BotFarm:
             self._deplacer_par_clic(-maximum, -maximum)
         self.pause(self.cfg["MOVE_DELAY"])
 
+    # --- ESPACE-TEMPS : SÉQUENCE D'ENTRÉE ----------------------------------
+    def double_appui(self, touche):
+        """Deux appuis rapprochés (mesurés d'un appui au suivant, < 0,5 s).
+
+        pydirectinput ajoute 0,1 s après chaque événement : on le coupe le temps
+        du double appui, sinon les deux frappes seraient trop espacées.
+        """
+        intervalle = self.cfg["TS"]["INTERVALLE_DOUBLE_APPUI"]
+        maintien = 0.03
+        self.verifier_arret()
+        pause_origine = pydirectinput.PAUSE
+        pydirectinput.PAUSE = 0
+        try:
+            debut = time.perf_counter()
+            pydirectinput.keyDown(touche)
+            time.sleep(maintien)
+            pydirectinput.keyUp(touche)
+            time.sleep(max(0.0, intervalle - maintien))
+            milieu = time.perf_counter()
+            pydirectinput.keyDown(touche)
+            time.sleep(maintien)
+            pydirectinput.keyUp(touche)
+        finally:
+            pydirectinput.PAUSE = pause_origine
+        self.log("[Espace-temps] Double appui '%s' (%.0f ms entre les deux appuis)."
+                 % (touche, (milieu - debut) * 1000))
+
+    def focaliser(self, hwnd, nom):
+        """Passe sur la fenêtre `nom` ; lève une erreur si Windows refuse."""
+        if not mettre_au_premier_plan(hwnd):
+            raise RuntimeError("Impossible d'amener la fenêtre '%s' au premier plan." % nom)
+        self.pause(self.cfg["TS"]["DELAI_FOCUS"])
+
+    def entrer_dans_ts(self, hwnd, nom):
+        """Sur la fenêtre `hwnd` : C C puis Entrée."""
+        ts = self.cfg["TS"]
+        self.focaliser(hwnd, nom)
+        self.double_appui(ts["TOUCHE_ENTREE"])
+        self.appuyer(ts["TOUCHE_VALIDER"])
+        self.log("[Espace-temps] %s : entrée validée." % nom)
+        self.pause(ts["DELAI_APRES_ENTREE"])
+
+    def aller_au_point(self, point, delai_max):
+        """Marche jusqu'à `point` sans combattre. Retourne True si atteint."""
+        cfg = self.cfg
+        type_position = cfg["TYPES_LECTURE"]["POSITION"]
+        debut = time.time()
+        derniere_position = None
+        compteur_blocage = 0
+
+        while time.time() - debut < delai_max:
+            self.verifier_arret()
+            if self.gerer_potions() == "mort":
+                raise ArretDemande()
+
+            resultat = self.avancer_vers(point)
+            if resultat == "atteint":
+                return True
+            if resultat == "erreur":
+                self.pause(1.0)
+                continue
+
+            position = (self.mem.lire(cfg["OFFSETS_POSITION"]["X"], type_position),
+                        self.mem.lire(cfg["OFFSETS_POSITION"]["Y"], type_position))
+            if position == derniere_position:
+                compteur_blocage += 1
+                if compteur_blocage >= cfg["BLOCAGE_MAX"]:
+                    self.debloquer()
+                    compteur_blocage = 0
+            else:
+                compteur_blocage = 0
+            derniere_position = position
+        return False
+
+    def sequence_entree_ts(self):
+        """Entre dans l'espace-temps avec les 3 persos, place le principal au
+        point voulu et valide. Retourne True si toute la séquence a abouti."""
+        ts = self.cfg["TS"]
+        self.log("[Espace-temps] === Séquence d'entrée ===")
+
+        principal = trouver_fenetre(ts["FENETRE_PRINCIPALE"]) if ts["FENETRE_PRINCIPALE"] else None
+        principal = principal or fenetre_premier_plan()
+        if not principal:
+            self.log("[Espace-temps] Fenêtre du perso principal introuvable - abandon.")
+            return False
+
+        allies = []
+        for titre in ts["FENETRES_ALLIES"]:
+            if not titre.strip():
+                continue
+            hwnd = trouver_fenetre(titre)
+            if not hwnd:
+                self.log("[Espace-temps] Fenêtre alliée '%s' introuvable - abandon." % titre)
+                return False
+            allies.append((hwnd, titre))
+
+        # 1. Perso principal
+        if ts["PRINCIPAL_ENTRE"]:
+            self.entrer_dans_ts(principal, "Perso principal")
+
+        # 2. Les alliés, un par un
+        for hwnd, titre in allies:
+            self.entrer_dans_ts(hwnd, "Allié '%s'" % titre)
+
+        # 3. Retour sur le perso principal
+        self.focaliser(principal, "Perso principal")
+        self.log("[Espace-temps] Retour sur le perso principal.")
+
+        # 4. Marche jusqu'au point précis, puis Entrée
+        point = ts["POINT"]
+        self.log("[Espace-temps] Déplacement vers le point (%d, %d)." % (point[0], point[1]))
+        if not self.aller_au_point(point, ts["POINT_TIMEOUT"]):
+            self.log("[Espace-temps] Point non atteint en %.0fs - abandon." % ts["POINT_TIMEOUT"])
+            return False
+        self.pause(ts["DELAI_AVANT_VALIDATION"])
+        self.appuyer(ts["TOUCHE_VALIDER"])
+        self.log("[Espace-temps] Entrée pressée au point (%d, %d) - début du clear de la map."
+                 % (point[0], point[1]))
+        self.pause(ts["DELAI_APRES_ENTREE"])
+        return True
+
     # --- BOUCLE PRINCIPALE -------------------------------------------------
     def boucle_principale(self):
         cfg = self.cfg
@@ -457,6 +651,10 @@ class BotFarm:
 
         self.log("[Init] Bot lancé. Chemin de %d point(s). Appuie sur ÉCHAP pour tout couper."
                  % len(cfg["PATH"]))
+
+        if cfg["TS"]["ACTIVER"] and not self.sequence_entree_ts():
+            self.log("[Espace-temps] Séquence d'entrée échouée - le bot s'arrête.")
+            return
 
         while True:
             self.verifier_arret()
