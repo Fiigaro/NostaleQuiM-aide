@@ -68,11 +68,15 @@ souvent des `short` (2 octets) plutôt que des `int`.
 Onglet **Espace-temps** (option « Activer »). Joué une fois au lancement, avant
 la boucle de farm :
 
-1. perso principal : touche **C deux fois** (intervalle réglable, < 0,5 s) puis **Entrée** ;
+1. perso principal : **clic souris** sur le bouton bleu Start (coordonnées écran) ;
 2. chacun des 2 alliés : passage sur sa fenêtre, **C C** puis **Entrée** ;
 3. retour sur la fenêtre du perso principal ;
 4. marche (lecture mémoire) jusqu'au **point précis** X, Y, puis **Entrée** ;
 5. la boucle de farm prend le relais pour clear la map.
+
+En fin de map, `choisir_recompenses_allies()` fait choisir leur récompense aux 2
+alliés (clic aux coordonnées réglées pour chacun) puis revient au principal. À
+appeler juste après le choix de récompense du perso principal.
 
 Chaque perso est une fenêtre NosTale : renseigne le titre (ou une partie) de
 chacune. « Perso principal » vide = la fenêtre au premier plan au lancement.

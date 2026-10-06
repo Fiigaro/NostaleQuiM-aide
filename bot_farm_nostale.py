@@ -94,14 +94,18 @@ CONFIG_DEFAUT = {
     "MOVE_KEY_DURATION": 0.35,             # Durée d'appui sur une flèche
 
     # --- Espace-temps (TS) : séquence d'entrée ----------------------------
-    # Ordre : perso principal -> alliés (C C puis Entrée) -> retour au principal
-    # -> marche jusqu'au point précis -> Entrée -> le farm peut clear la map.
+    # Ordre : perso principal (clic sur le bouton bleu Start) -> alliés (C C puis
+    # Entrée) -> retour au principal -> marche jusqu'au point précis -> Entrée
+    # -> le farm peut clear la map. En fin de map, les alliés choisissent leur
+    # récompense par un clic (voir choisir_recompenses_allies).
     "TS": {
         "ACTIVER": False,
         "FENETRE_PRINCIPALE": "",       # Titre (ou partie) de la fenêtre du perso principal.
                                         # Vide = la fenêtre au premier plan au lancement.
         "FENETRES_ALLIES": ["", ""],    # Titres (ou parties) des fenêtres des 2 autres persos
-        "PRINCIPAL_ENTRE": True,        # Le perso principal fait lui aussi C C + Entrée
+        "PRINCIPAL_CLIC_START": [0, 0], # Pixels écran du bouton bleu Start (perso principal)
+        "RECOMPENSE_CLICS_ALLIES": [[0, 0], [0, 0]],  # Pixels écran du clic de récompense, un par allié
+        "DELAI_RECOMPENSE": 0.8,        # Attente après chaque clic de récompense
         "TOUCHE_ENTREE": "c",           # Touche pressée deux fois
         "INTERVALLE_DOUBLE_APPUI": 0.2, # Entre les deux appuis (DOIT rester < 0.5 s)
         "TOUCHE_VALIDER": "enter",
@@ -234,6 +238,8 @@ def valider_config(config):
             problemes.append("Espace-temps : l'intervalle du double appui doit être < 0,5 s.")
         if not ts["POINT"] or tuple(ts["POINT"]) == (0, 0):
             problemes.append("Espace-temps : le point d'arrivée n'est pas renseigné.")
+        if tuple(ts["PRINCIPAL_CLIC_START"]) == (0, 0):
+            problemes.append("Espace-temps : les coordonnées du bouton Start ne sont pas renseignées.")
 
     if sys.platform != "win32":
         problemes.append("Ce bot nécessite Windows (pymem et pydirectinput utilisent l'API Win32).")
@@ -554,6 +560,50 @@ class BotFarm:
             raise RuntimeError("Impossible d'amener la fenêtre '%s' au premier plan." % nom)
         self.pause(self.cfg["TS"]["DELAI_FOCUS"])
 
+    def cliquer_a(self, x, y):
+        """Clic gauche aux coordonnées écran (x, y)."""
+        self.verifier_arret()
+        pydirectinput.moveTo(int(x), int(y))
+        self.pause(0.15)
+        pydirectinput.click()
+
+    def demarrer_ts_principal(self, hwnd):
+        """Perso principal : clic sur le bouton bleu Start."""
+        ts = self.cfg["TS"]
+        x, y = ts["PRINCIPAL_CLIC_START"]
+        self.focaliser(hwnd, "Perso principal")
+        self.cliquer_a(x, y)
+        self.log("[Espace-temps] Perso principal : clic sur Start en (%d, %d) px." % (x, y))
+        self.pause(ts["DELAI_APRES_ENTREE"])
+
+    def choisir_recompenses_allies(self):
+        """Chaque allié choisit sa récompense (clic), puis retour sur le principal.
+
+        À appeler en fin de map, juste après le choix de récompense du principal.
+        """
+        ts = self.cfg["TS"]
+        principal = trouver_fenetre(ts["FENETRE_PRINCIPALE"]) if ts["FENETRE_PRINCIPALE"] else None
+        principal = principal or fenetre_premier_plan()
+        clics = ts["RECOMPENSE_CLICS_ALLIES"]
+        titres = [t for t in ts["FENETRES_ALLIES"] if t.strip()]
+
+        for index, titre in enumerate(titres):
+            x, y = clics[index] if index < len(clics) else (0, 0)
+            if (x, y) == (0, 0):
+                self.log("[Espace-temps] Allié '%s' : clic de récompense non renseigné - ignoré." % titre)
+                continue
+            hwnd = trouver_fenetre(titre)
+            if not hwnd:
+                self.log("[Espace-temps] Allié '%s' introuvable - récompense non choisie." % titre)
+                continue
+            self.focaliser(hwnd, "Allié '%s'" % titre)
+            self.cliquer_a(x, y)
+            self.log("[Espace-temps] Allié '%s' : récompense choisie (clic en %d, %d)." % (titre, x, y))
+            self.pause(ts["DELAI_RECOMPENSE"])
+
+        if principal:
+            self.focaliser(principal, "Perso principal")
+
     def entrer_dans_ts(self, hwnd, nom):
         """Sur la fenêtre `hwnd` : C C puis Entrée."""
         ts = self.cfg["TS"]
@@ -617,9 +667,8 @@ class BotFarm:
                 return False
             allies.append((hwnd, titre))
 
-        # 1. Perso principal
-        if ts["PRINCIPAL_ENTRE"]:
-            self.entrer_dans_ts(principal, "Perso principal")
+        # 1. Perso principal : clic sur Start
+        self.demarrer_ts_principal(principal)
 
         # 2. Les alliés, un par un
         for hwnd, titre in allies:

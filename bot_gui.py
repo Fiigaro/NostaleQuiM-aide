@@ -297,7 +297,7 @@ class InterfaceBot(tk.Tk):
         ttk.Checkbutton(cadre, text="Activer la séquence d'entrée en espace-temps au lancement",
                         variable=self.vars["TS_ACTIVER"]).pack(anchor="w", padx=10, pady=(10, 2))
         ttk.Label(cadre, foreground="#555555", justify="left",
-                  text=("Ordre : perso principal (C C + Entrée) -> alliés (C C + Entrée) -> retour au "
+                  text=("Ordre : principal (clic Start) -> alliés (C C + Entrée) -> retour au "
                         "principal -> marche jusqu'au point -> Entrée -> clear de la map.")
                   ).pack(anchor="w", padx=12, pady=(0, 6))
 
@@ -308,10 +308,6 @@ class InterfaceBot(tk.Tk):
                   foreground="#555555").grid(row=0, column=2, sticky="w", padx=4)
         self._champ(fenetres, 1, 0, "Allié 1 :", "TS_ALLIE_1", largeur=26)
         self._champ(fenetres, 2, 0, "Allié 2 :", "TS_ALLIE_2", largeur=26)
-        self.vars["TS_PRINCIPAL_ENTRE"] = tk.BooleanVar(value=True)
-        ttk.Checkbutton(fenetres, text="Le perso principal fait aussi C C + Entrée",
-                        variable=self.vars["TS_PRINCIPAL_ENTRE"]).grid(
-            row=3, column=0, columnspan=3, sticky="w", padx=8, pady=4)
 
         touches = ttk.LabelFrame(cadre, text="Touches et délais")
         touches.pack(fill="x", padx=8, pady=4)
@@ -320,6 +316,16 @@ class InterfaceBot(tk.Tk):
         self._champ(touches, 1, 0, "Touche de validation :", "TS_TOUCHE_VALIDER", largeur=8)
         self._champ(touches, 1, 1, "Délai après Entrée (s) :", "TS_DELAI_APRES_ENTREE", largeur=8)
         self._champ(touches, 2, 0, "Délai changement fenêtre (s) :", "TS_DELAI_FOCUS", largeur=8)
+
+        clics = ttk.LabelFrame(cadre, text="Clics souris (pixels écran)")
+        clics.pack(fill="x", padx=8, pady=4)
+        self._champ(clics, 0, 0, "Bouton bleu Start - X :", "TS_START_X", largeur=8)
+        self._champ(clics, 0, 1, "Y :", "TS_START_Y", largeur=8)
+        self._champ(clics, 1, 0, "Récompense allié 1 - X :", "TS_RECOMP1_X", largeur=8)
+        self._champ(clics, 1, 1, "Y :", "TS_RECOMP1_Y", largeur=8)
+        self._champ(clics, 2, 0, "Récompense allié 2 - X :", "TS_RECOMP2_X", largeur=8)
+        self._champ(clics, 2, 1, "Y :", "TS_RECOMP2_Y", largeur=8)
+        self._champ(clics, 3, 0, "Délai après clic récompense (s) :", "TS_DELAI_RECOMPENSE", largeur=8)
 
         point = ttk.LabelFrame(cadre, text="Point d'arrivée du perso principal")
         point.pack(fill="x", padx=8, pady=4)
@@ -333,6 +339,7 @@ class InterfaceBot(tk.Tk):
         """Remplit tous les champs depuis une configuration."""
         ts = config["TS"]
         allies = (list(ts["FENETRES_ALLIES"]) + ["", ""])[:2]
+        recomp = (list(ts["RECOMPENSE_CLICS_ALLIES"]) + [[0, 0], [0, 0]])[:2]
         valeurs = {
             "PROCESS_NAME": config["PROCESS_NAME"],
             "MODULE_NAME": config["MODULE_NAME"],
@@ -371,6 +378,13 @@ class InterfaceBot(tk.Tk):
             "TS_FENETRE_PRINCIPALE": ts["FENETRE_PRINCIPALE"],
             "TS_ALLIE_1": allies[0],
             "TS_ALLIE_2": allies[1],
+            "TS_START_X": "%d" % ts["PRINCIPAL_CLIC_START"][0],
+            "TS_START_Y": "%d" % ts["PRINCIPAL_CLIC_START"][1],
+            "TS_RECOMP1_X": "%d" % recomp[0][0],
+            "TS_RECOMP1_Y": "%d" % recomp[0][1],
+            "TS_RECOMP2_X": "%d" % recomp[1][0],
+            "TS_RECOMP2_Y": "%d" % recomp[1][1],
+            "TS_DELAI_RECOMPENSE": "%g" % ts["DELAI_RECOMPENSE"],
             "TS_TOUCHE_ENTREE": ts["TOUCHE_ENTREE"],
             "TS_INTERVALLE": "%g" % ts["INTERVALLE_DOUBLE_APPUI"],
             "TS_TOUCHE_VALIDER": ts["TOUCHE_VALIDER"],
@@ -386,7 +400,6 @@ class InterfaceBot(tk.Tk):
 
         self.vars["BOUCLER_CHEMIN"].set(bool(config["BOUCLER_CHEMIN"]))
         self.vars["TS_ACTIVER"].set(bool(ts["ACTIVER"]))
-        self.vars["TS_PRINCIPAL_ENTRE"].set(bool(ts["PRINCIPAL_ENTRE"]))
         self.champ_chemin.delete("1.0", "end")
         self.champ_chemin.insert("1.0", formater_chemin(config["PATH"]))
 
@@ -474,7 +487,14 @@ class InterfaceBot(tk.Tk):
             "FENETRE_PRINCIPALE": self.vars["TS_FENETRE_PRINCIPALE"].get().strip(),
             "FENETRES_ALLIES": [self.vars["TS_ALLIE_1"].get().strip(),
                                 self.vars["TS_ALLIE_2"].get().strip()],
-            "PRINCIPAL_ENTRE": bool(self.vars["TS_PRINCIPAL_ENTRE"].get()),
+            "PRINCIPAL_CLIC_START": [nombre("TS_START_X", "Start X", entier=True, mini=0),
+                                     nombre("TS_START_Y", "Start Y", entier=True, mini=0)],
+            "RECOMPENSE_CLICS_ALLIES": [
+                [nombre("TS_RECOMP1_X", "Récompense allié 1 X", entier=True, mini=0),
+                 nombre("TS_RECOMP1_Y", "Récompense allié 1 Y", entier=True, mini=0)],
+                [nombre("TS_RECOMP2_X", "Récompense allié 2 X", entier=True, mini=0),
+                 nombre("TS_RECOMP2_Y", "Récompense allié 2 Y", entier=True, mini=0)]],
+            "DELAI_RECOMPENSE": nombre("TS_DELAI_RECOMPENSE", "Délai récompense", mini=0),
             "TOUCHE_ENTREE": self.vars["TS_TOUCHE_ENTREE"].get().strip(),
             "INTERVALLE_DOUBLE_APPUI": nombre("TS_INTERVALLE", "Intervalle double appui",
                                               mini=0.02, maxi=0.45),
