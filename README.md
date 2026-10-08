@@ -12,6 +12,7 @@ au code.
 |---|---|
 | `bot_gui.py` | Interface graphique : les cases de réglage + le bouton Lancer |
 | `bot_farm_nostale.py` | Moteur du bot (utilisable seul en ligne de commande) |
+| `bot_raid.py` | Bot de raid simple : touches + temporisations, sans lecture mémoire |
 | `build.bat` | Compile `BotFarmNostale.exe` |
 | `config_bot.json` | Tes réglages, créé au premier enregistrement |
 
@@ -77,3 +78,20 @@ complètement ce calibrage.
 
 La touche **ÉCHAP** coupe le bot instantanément, même si la fenêtre du jeu est au
 premier plan. Le bouton **Stop** fait la même chose.
+
+## Bot de raid (`bot_raid.py`)
+
+Version minimaliste pour farmer les raids : pas d'offsets, pas de mémoire, juste
+une séquence de touches rejouée en boucle (touche du raid → Entrée → avancer →
+auto-attaque pendant X secondes → retour au point de départ).
+
+```bat
+pip install pydirectinput
+python bot_raid.py
+```
+
+La séquence est la liste `ETAPES` en haut du fichier (ou dans `config_raid.json`,
+même format). Actions : `touche`, `attendre`, `maintenir`, `attaque`, `clic`.
+Les valeurs par défaut sont des exemples : règle les touches, la durée de
+l'`attaque` (= durée du raid) et l'étape de retour selon ton jeu.
+`NB_TOURS = 0` boucle à l'infini. **ÉCHAP** coupe tout immédiatement.

@@ -9,3 +9,4 @@ config_bot.json
 # Python
 __pycache__/
 *.py[cod]
+config_raid.json
