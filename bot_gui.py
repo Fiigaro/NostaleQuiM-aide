@@ -307,8 +307,22 @@ class InterfaceBot(tk.Tk):
         droite = ttk.Frame(cadre)
         droite.pack(side="left", fill="both", expand=True, padx=(4, 8), pady=10)
 
+        envoi = ttk.LabelFrame(droite, text="Envoi des touches")
+        envoi.pack(fill="x")
+        self._liste(envoi, 0, 0, "Mode :", "RAID_MODE", ["arriere_plan", "premier_plan"], largeur=14)
+        ttk.Label(envoi, text="Processus du jeu :").grid(
+            row=1, column=0, sticky="w", padx=(8, 4), pady=3)
+        # Même variable que l'onglet « Processus & Offsets » : un seul réglage pour les deux bots.
+        ttk.Entry(envoi, textvariable=self.vars["PROCESS_NAME"], width=22).grid(
+            row=1, column=1, sticky="w", padx=(0, 8), pady=3)
+        ttk.Label(envoi, foreground="#555555", justify="left",
+                  text=("arriere_plan : la fenêtre du jeu est trouvée par son processus\n"
+                        "et reçoit les touches même derrière d'autres fenêtres.\n"
+                        "premier_plan : touches globales, le jeu doit être devant.")
+                  ).grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 6))
+
         boucle = ttk.LabelFrame(droite, text="Boucle")
-        boucle.pack(fill="x")
+        boucle.pack(fill="x", pady=(8, 0))
         self._champ(boucle, 0, 0, "Nombre de raids (0 = ∞) :", "RAID_NB_TOURS", largeur=8)
         self._champ(boucle, 1, 0, "Pause entre raids (s) :", "RAID_PAUSE", largeur=8)
         self._champ(boucle, 2, 0, "Compte à rebours (s) :", "RAID_DELAI", largeur=8)
@@ -321,7 +335,9 @@ class InterfaceBot(tk.Tk):
         ttk.Label(capture, foreground="#555555", justify="left",
                   text=("La fenêtre se réduit : clique à l'endroit voulu dans\n"
                         "le jeu et une ligne « clic X Y » est ajoutée à la\n"
-                        "séquence. ÉCHAP annule (30 s max).")
+                        "séquence. ÉCHAP annule (30 s max). En arrière-plan,\n"
+                        "X Y sont relatifs à la fenêtre du jeu : refais la\n"
+                        "capture si tu changes de mode.")
                   ).pack(anchor="w", padx=8, pady=(0, 6))
 
         aide = ("Actions :\n"
@@ -339,6 +355,7 @@ class InterfaceBot(tk.Tk):
 
     # --- Configuration <-> widgets ---------------------------------------
     def appliquer_config_raid(self, config):
+        self.vars["RAID_MODE"].set(config["MODE"])
         self.vars["RAID_NB_TOURS"].set("%d" % config["NB_TOURS"])
         self.vars["RAID_PAUSE"].set("%g" % config["PAUSE_ENTRE_TOURS"])
         self.vars["RAID_DELAI"].set("%d" % config["DELAI_DEMARRAGE"])
@@ -357,6 +374,8 @@ class InterfaceBot(tk.Tk):
                 erreurs.append(str(erreur))
                 return 0
 
+        config["MODE"] = self.vars["RAID_MODE"].get()
+        config["PROCESS_NAME"] = self.vars["PROCESS_NAME"].get().strip()
         config["NB_TOURS"] = nombre("RAID_NB_TOURS", "Nombre de raids", entier=True, mini=0)
         config["PAUSE_ENTRE_TOURS"] = nombre("RAID_PAUSE", "Pause entre raids", mini=0)
         config["DELAI_DEMARRAGE"] = nombre("RAID_DELAI", "Compte à rebours (raid)", entier=True, mini=0)
@@ -572,19 +591,33 @@ class InterfaceBot(tk.Tk):
             messagebox.showerror("Capture impossible", str(erreur))
             return
 
+        mode = self.vars["RAID_MODE"].get()
+        processus = self.vars["PROCESS_NAME"].get().strip()
+        if mode == "arriere_plan" and not processus:
+            messagebox.showerror("Capture impossible", "Renseigne le nom du processus du jeu.")
+            return
+
         self.bouton_capture.configure(state="disabled")
         self.journal("[Capture] Clique à l'endroit voulu dans le jeu (ÉCHAP pour annuler, 30 s).")
         self.iconify()
 
         def travail():
-            point = bot_raid.capturer_clic(souris=souris)
-            self.after(0, lambda: self._fin_capture(point))
+            point, erreur = bot_raid.capturer_clic(souris=souris), None
+            if point is not None and mode == "arriere_plan":
+                try:   # coordonnées relatives à la fenêtre du jeu
+                    point = bot_raid.ecran_vers_client(processus, point)
+                except Exception as exception:
+                    point, erreur = None, str(exception)
+            self.after(0, lambda: self._fin_capture(point, erreur, mode))
 
         threading.Thread(target=travail, daemon=True).start()
 
-    def _fin_capture(self, point):
+    def _fin_capture(self, point, erreur=None, mode="premier_plan"):
         self.deiconify()
         self.bouton_capture.configure(state="normal")
+        if erreur:
+            self.journal("[Capture] Échec : %s" % erreur)
+            return
         if point is None:
             self.journal("[Capture] Annulée.")
             return
@@ -593,7 +626,8 @@ class InterfaceBot(tk.Tk):
             self.champ_etapes.insert("end", "\n")
         self.champ_etapes.insert("end", "clic %d %d\n" % point)
         self.champ_etapes.see("end")
-        self.journal("[Capture] Point (%d, %d) ajouté à la fin de la séquence." % point)
+        self.journal("[Capture] Point (%d, %d) ajouté à la fin de la séquence%s." % (
+            point + (" (relatif à la fenêtre du jeu)" if mode == "arriere_plan" else "",)))
 
     def lancer(self):
         if self.thread and self.thread.is_alive():

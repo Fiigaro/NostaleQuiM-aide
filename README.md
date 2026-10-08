@@ -13,6 +13,7 @@ au code.
 | `bot_gui.py` | Interface graphique : les cases de réglage + le bouton Lancer |
 | `bot_farm_nostale.py` | Moteur du bot (utilisable seul en ligne de commande) |
 | `bot_raid.py` | Bot de raid simple : touches + temporisations, sans lecture mémoire |
+| `entree_arriere_plan.py` | Envoi des touches/clics directement à la fenêtre du jeu (mode arrière-plan du raid) |
 | `build.bat` | Compile `BotFarmNostale.exe` |
 | `config_bot.json` | Tes réglages, créé au premier enregistrement |
 
@@ -86,9 +87,22 @@ une séquence de touches rejouée en boucle (touche du raid → Entrée → avan
 auto-attaque pendant X secondes → retour au point de départ).
 
 ```bat
-pip install pydirectinput
 python bot_raid.py
+pip install pydirectinput    (seulement si tu utilises le mode premier_plan)
 ```
+
+### Mode d'envoi : arrière-plan ou premier plan
+
+- **`arriere_plan`** (défaut) : le bot retrouve la fenêtre du jeu à partir du **nom du
+  processus** (`NostaleClientX.exe`, le même réglage que le bot de farm) et lui envoie
+  les touches et les clics directement. NosTale peut rester derrière d'autres fenêtres,
+  mais **pas réduite dans la barre des tâches**. Les coordonnées `clic X Y` sont alors
+  relatives à la fenêtre du jeu (coin haut-gauche = 0, 0).
+- **`premier_plan`** : touches et clics globaux (`pydirectinput`), le jeu doit être
+  devant. Coordonnées `clic` = écran.
+
+Le mode arrière-plan ne marche que si le jeu lit ses entrées via les messages de fenêtre.
+Si rien ne se passe dans le jeu, passe en `premier_plan`.
 
 **Depuis l'interface graphique** (`python bot_gui.py`) : onglet **Raid** pour écrire
 la séquence (une étape par ligne, ex. `touche r`, `attendre 1.5`, `maintenir up 2`,
@@ -99,8 +113,9 @@ Réglages enregistrés dans `config_raid.json`.
 Pour savoir où cliquer, utilise **◎ Capturer un point** (onglet Raid) : la fenêtre se
 réduit, tu cliques à l'endroit voulu dans le jeu, et une ligne `clic X Y` est ajoutée
 à la fin de la séquence (Échap annule, 30 s max). Le clic est aussi transmis au jeu.
-Les coordonnées sont absolues : garde la fenêtre du jeu au même endroit et à la même
-résolution.
+En `premier_plan`, les coordonnées sont celles de l'écran : garde la fenêtre du jeu au
+même endroit et à la même résolution. En `arriere_plan`, elles sont relatives à la
+fenêtre du jeu : refais la capture si tu changes de mode ou de taille de fenêtre.
 
 En script, la séquence est la liste `ETAPES` en haut du fichier (ou dans `config_raid.json`,
 même format). Actions : `touche`, `attendre`, `maintenir`, `attaque`, `clic`.

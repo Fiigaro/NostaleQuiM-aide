@@ -17,8 +17,17 @@ Actions disponibles pour une étape :
                             "delai": 0.3}                     pendant `duree` s
     {"action": "clic",      "x": 960, "y": 540}               clic souris
 
+Deux modes d'envoi (réglage "MODE") :
+    "arriere_plan"  (défaut) la fenêtre du jeu est retrouvée par le nom de son
+                    processus (PROCESS_NAME) et reçoit les touches/clics
+                    directement : elle peut rester derrière d'autres fenêtres.
+                    Les coordonnées `clic` sont relatives à la zone cliente de
+                    la fenêtre du jeu (coin haut-gauche = 0, 0).
+    "premier_plan"  touches et clics globaux (pydirectinput) : la fenêtre du jeu
+                    doit être au premier plan. Coordonnées `clic` = écran.
+
 Lancement (Windows) :
-    pip install pydirectinput
+    pip install pydirectinput        (seulement pour le mode "premier_plan")
     python bot_raid.py            (en administrateur si le jeu l'est aussi)
 
 Touche ÉCHAP = arrêt immédiat, à tout moment.
@@ -39,6 +48,7 @@ try:
 except Exception:
     pydirectinput = None
 
+import entree_arriere_plan
 from bot_farm_nostale import (ArretDemande, demarrer_surveillance_echap, dossier_base,
                               echap_pressee)
 
@@ -48,7 +58,9 @@ from bot_farm_nostale import (ArretDemande, demarrer_surveillance_echap, dossier
 #   À adapter : touches, durées, et surtout la durée du raid.
 # ===========================================================================
 CONFIG_DEFAUT = {
-    "DELAI_DEMARRAGE": 5,     # Compte à rebours avant le 1er tour (mets NosTale au premier plan)
+    "MODE": "arriere_plan",   # "arriere_plan" (fenêtre ciblée par processus) ou "premier_plan"
+    "PROCESS_NAME": "NostaleClientX.exe",   # Même réglage que le bot de farm
+    "DELAI_DEMARRAGE": 5,     # Compte à rebours avant le 1er tour (secondes)
     "NB_TOURS": 0,            # 0 = boucle infinie
     "PAUSE_ENTRE_TOURS": 3.0, # Secondes d'attente entre la fin d'un tour et le suivant
 
@@ -204,19 +216,95 @@ def valider_config(config):
             problemes.append("Étape %d (clic) : 'x' et 'y' manquants." % i)
         elif action not in ("touche", "attendre", "maintenir", "attaque", "clic"):
             problemes.append("Étape %d : action inconnue %r." % (i, action))
-    if pydirectinput is None:
-        problemes.append("Bibliothèque 'pydirectinput' introuvable : pip install pydirectinput")
+    mode = config.get("MODE", "arriere_plan")
+    if mode == "arriere_plan":
+        if not (config.get("PROCESS_NAME") or "").strip():
+            problemes.append("PROCESS_NAME est vide (nom du .exe du jeu).")
+    elif mode == "premier_plan":
+        if pydirectinput is None:
+            problemes.append("Bibliothèque 'pydirectinput' introuvable : pip install pydirectinput")
+    else:
+        problemes.append("MODE inconnu %r (arriere_plan ou premier_plan)." % mode)
     return problemes
+
+
+# ---------------------------------------------------------------------------
+# MODES D'ENVOI
+# ---------------------------------------------------------------------------
+class EntreePremierPlan:
+    """Touches et clics globaux (pydirectinput) : le jeu doit être au premier plan."""
+
+    def connecter(self):
+        return None
+
+    def press(self, touche):
+        pydirectinput.press(touche)
+
+    def maintenir(self, touche, duree, pause):
+        pydirectinput.keyDown(touche)
+        try:
+            pause(duree)
+        finally:
+            pydirectinput.keyUp(touche)
+
+    def click(self, x, y):
+        pydirectinput.moveTo(int(x), int(y))
+        pydirectinput.click()
+
+
+class EntreeArrierePlan:
+    """Messages envoyés directement à la fenêtre du processus du jeu."""
+
+    PAS_REPETITION = 0.1   # Un clavier réel répète la touche maintenue : on l'imite
+
+    def __init__(self, nom_processus, fenetre=None):
+        self.fenetre = fenetre or entree_arriere_plan.EntreeFenetre(nom_processus)
+
+    def connecter(self):
+        return self.fenetre.connecter()
+
+    def press(self, touche):
+        self.fenetre.press(touche)
+
+    def maintenir(self, touche, duree, pause):
+        self.fenetre.key_down(touche)
+        try:
+            restant = duree
+            while restant > 1e-9:
+                pas = min(self.PAS_REPETITION, restant)
+                pause(pas)
+                restant -= pas
+                if restant > 1e-9:
+                    self.fenetre.key_down(touche, repetition=True)
+        finally:
+            self.fenetre.key_up(touche)
+
+    def click(self, x, y):
+        self.fenetre.click(x, y)
+
+
+def construire_entree(config):
+    if config.get("MODE", "arriere_plan") == "premier_plan":
+        return EntreePremierPlan()
+    return EntreeArrierePlan(config["PROCESS_NAME"].strip())
+
+
+def ecran_vers_client(nom_processus, point, api=None):
+    """Convertit un point écran (x, y) en coordonnées de la fenêtre du jeu."""
+    fenetre = entree_arriere_plan.EntreeFenetre(nom_processus, api=api)
+    fenetre.connecter()
+    return fenetre.ecran_vers_client(*point)
 
 
 # ---------------------------------------------------------------------------
 # MOTEUR
 # ---------------------------------------------------------------------------
 class BotRaid:
-    def __init__(self, config, journal=None, arret=None):
+    def __init__(self, config, journal=None, arret=None, entree=None):
         self.cfg = config
         self.journal = journal or (lambda message: print(message, flush=True))
         self.arret = arret or threading.Event()
+        self.entree = entree
 
     def log(self, message):
         self.journal("[%s] %s" % (time.strftime("%H:%M:%S"), message))
@@ -234,7 +322,7 @@ class BotRaid:
     def _touche(self, etape):
         self.verifier_arret()
         self.log("Touche '%s'" % etape["touche"])
-        pydirectinput.press(etape["touche"])
+        self.entree.press(etape["touche"])
 
     def _attendre(self, etape):
         self.log("Attente %.1f s" % etape["duree"])
@@ -242,25 +330,20 @@ class BotRaid:
 
     def _maintenir(self, etape):
         self.log("Maintien de '%s' pendant %.1f s" % (etape["touche"], etape["duree"]))
-        pydirectinput.keyDown(etape["touche"])
-        try:
-            self.pause(etape["duree"])
-        finally:
-            pydirectinput.keyUp(etape["touche"])
+        self.entree.maintenir(etape["touche"], etape["duree"], self.pause)
 
     def _attaque(self, etape):
         self.log("Auto-attaque ('%s') pendant %.1f s" % (etape["touche"], etape["duree"]))
         fin = time.time() + etape["duree"]
         while time.time() < fin:
             self.verifier_arret()
-            pydirectinput.press(etape["touche"])
+            self.entree.press(etape["touche"])
             self.pause(min(etape.get("delai", 0.3), max(fin - time.time(), 0)))
 
     def _clic(self, etape):
         self.verifier_arret()
         self.log("Clic en (%d, %d)" % (etape["x"], etape["y"]))
-        pydirectinput.moveTo(int(etape["x"]), int(etape["y"]))
-        pydirectinput.click()
+        self.entree.click(etape["x"], etape["y"])
 
     def jouer_tour(self):
         actions = {
@@ -295,10 +378,21 @@ class BotRaid:
                 self.log("         - %s" % probleme)
             return 1
 
+        try:
+            self.entree = self.entree or construire_entree(self.cfg)
+            self.entree.connecter()
+        except Exception as erreur:
+            self.log("[Erreur] %s" % erreur)
+            return 1
+        arriere_plan = self.cfg.get("MODE", "arriere_plan") == "arriere_plan"
+        if arriere_plan:
+            self.log("Fenêtre de '%s' trouvée - envoi en arrière-plan." % self.cfg["PROCESS_NAME"])
+
         demarrer_surveillance_echap(self.arret)
         try:
             for restant in range(int(self.cfg["DELAI_DEMARRAGE"]), 0, -1):
-                self.log("Démarrage dans %d s - mets la fenêtre NosTale au premier plan..." % restant)
+                self.log("Démarrage dans %d s%s" % (
+                    restant, "" if arriere_plan else " - mets la fenêtre NosTale au premier plan..."))
                 self.pause(1.0)
             self.boucle()
         except ArretDemande:
