@@ -6,13 +6,14 @@ bot_gui.py
 
 Interface graphique du bot de farm NosTale : tous les réglages (offsets,
 seuils, touches, chemin) sont modifiables dans des cases, puis un bouton
-« Lancer » démarre le bot.
+« Lancer » démarre le bot. L'onglet « Raid » règle le bot de raid
+(bot_raid.py), lancé par le bouton « Lancer le raid ».
 
 Lancement :
     python bot_gui.py
 
-Les réglages sont enregistrés dans 'config_bot.json', à côté du programme,
-et rechargés automatiquement au démarrage suivant.
+Les réglages sont enregistrés dans 'config_bot.json' (farm) et
+'config_raid.json' (raid), à côté du programme, et rechargés automatiquement au démarrage suivant.
 
 Sécurité : la touche ÉCHAP coupe le bot instantanément, même si la fenêtre
 du jeu est au premier plan. Le bouton « Stop » fait la même chose.
@@ -24,6 +25,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
+import bot_raid
 from bot_farm_nostale import (
     CONFIG_DEFAUT,
     BotFarm,
@@ -112,6 +114,7 @@ class InterfaceBot(tk.Tk):
 
         self._construire()
         self.appliquer_config(charger_config())
+        self.appliquer_config_raid(bot_raid.charger_config())
         self.after(100, self._vider_file_logs)
         self.protocol("WM_DELETE_WINDOW", self._fermer)
 
@@ -145,6 +148,7 @@ class InterfaceBot(tk.Tk):
         self._onglet_offsets(onglets)
         self._onglet_combat(onglets)
         self._onglet_chemin(onglets)
+        self._onglet_raid(onglets)
 
         # --- Barre de boutons --------------------------------------------
         barre = ttk.Frame(self)
@@ -156,6 +160,8 @@ class InterfaceBot(tk.Tk):
 
         self.bouton_stop = ttk.Button(barre, text="■  Stop", command=self.arreter, state="disabled")
         self.bouton_stop.pack(side="right")
+        self.bouton_raid = ttk.Button(barre, text="▶  Lancer le raid", command=self.lancer_raid)
+        self.bouton_raid.pack(side="right", padx=(6, 0))
         self.bouton_lancer = ttk.Button(barre, text="▶  Lancer", command=self.lancer)
         self.bouton_lancer.pack(side="right", padx=6)
 
@@ -288,7 +294,67 @@ class InterfaceBot(tk.Tk):
         self._champ(divers, 0, 0, "Compte à rebours (s) :", "DELAI_DEMARRAGE", largeur=8)
         self._champ(divers, 1, 0, "Seuil anti-blocage :", "BLOCAGE_MAX", largeur=8)
 
+    def _onglet_raid(self, onglets):
+        cadre = ttk.Frame(onglets)
+        onglets.add(cadre, text="  Raid  ")
+
+        gauche = ttk.LabelFrame(cadre, text="Séquence d'un raid (une étape par ligne)")
+        gauche.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=10)
+        self.champ_etapes = scrolledtext.ScrolledText(gauche, width=34, height=14,
+                                                      wrap="none", font=("Consolas", 10))
+        self.champ_etapes.pack(fill="both", expand=True, padx=6, pady=6)
+
+        droite = ttk.Frame(cadre)
+        droite.pack(side="left", fill="both", expand=True, padx=(4, 8), pady=10)
+
+        boucle = ttk.LabelFrame(droite, text="Boucle")
+        boucle.pack(fill="x")
+        self._champ(boucle, 0, 0, "Nombre de raids (0 = ∞) :", "RAID_NB_TOURS", largeur=8)
+        self._champ(boucle, 1, 0, "Pause entre raids (s) :", "RAID_PAUSE", largeur=8)
+        self._champ(boucle, 2, 0, "Compte à rebours (s) :", "RAID_DELAI", largeur=8)
+
+        aide = ("Actions :\n"
+                "  touche r\n"
+                "  attendre 1.5\n"
+                "  maintenir up 2\n"
+                "  attaque space 60 0.3\n"
+                "  clic 960 540\n\n"
+                "attaque = touche, durée du raid (s), délai entre\n"
+                "appuis (s, optionnel). Lignes # ignorées.\n"
+                "Le bouton « Lancer le raid » (en bas) joue la\n"
+                "séquence en boucle. ÉCHAP ou Stop = arrêt.")
+        ttk.Label(droite, text=aide, foreground="#555555", justify="left").pack(
+            anchor="w", padx=4, pady=12)
+
     # --- Configuration <-> widgets ---------------------------------------
+    def appliquer_config_raid(self, config):
+        self.vars["RAID_NB_TOURS"].set("%d" % config["NB_TOURS"])
+        self.vars["RAID_PAUSE"].set("%g" % config["PAUSE_ENTRE_TOURS"])
+        self.vars["RAID_DELAI"].set("%d" % config["DELAI_DEMARRAGE"])
+        self.champ_etapes.delete("1.0", "end")
+        self.champ_etapes.insert("1.0", bot_raid.etapes_vers_texte(config["ETAPES"]))
+
+    def collecter_config_raid(self):
+        """Lit l'onglet Raid. Retourne (config, liste d'erreurs)."""
+        erreurs = []
+        config = copy.deepcopy(bot_raid.CONFIG_DEFAUT)
+
+        def nombre(cle, libelle, entier=False, mini=None):
+            try:
+                return parser_nombre(self.vars[cle].get(), libelle, entier, mini)
+            except ValueError as erreur:
+                erreurs.append(str(erreur))
+                return 0
+
+        config["NB_TOURS"] = nombre("RAID_NB_TOURS", "Nombre de raids", entier=True, mini=0)
+        config["PAUSE_ENTRE_TOURS"] = nombre("RAID_PAUSE", "Pause entre raids", mini=0)
+        config["DELAI_DEMARRAGE"] = nombre("RAID_DELAI", "Compte à rebours (raid)", entier=True, mini=0)
+        try:
+            config["ETAPES"] = bot_raid.texte_vers_etapes(self.champ_etapes.get("1.0", "end"))
+        except ValueError as erreur:
+            erreurs.append("Séquence raid - %s" % erreur)
+        return config, erreurs
+
     def appliquer_config(self, config):
         """Remplit tous les champs depuis une configuration."""
         valeurs = {
@@ -435,20 +501,26 @@ class InterfaceBot(tk.Tk):
     # --- Actions ----------------------------------------------------------
     def sauvegarder(self):
         config, erreurs = self.collecter_config()
+        config_raid, erreurs_raid = self.collecter_config_raid()
+        erreurs += erreurs_raid
         if erreurs:
             messagebox.showerror("Réglages invalides", "\n".join("• " + e for e in erreurs))
             return
         chemin = sauver_config(config)
         self.journal("[Config] Réglages enregistrés dans %s" % chemin)
+        chemin = bot_raid.sauver_config(config_raid)
+        self.journal("[Config] Réglages raid enregistrés dans %s" % chemin)
 
     def recharger(self):
         self.appliquer_config(charger_config())
-        self.journal("[Config] Réglages rechargés depuis le fichier.")
+        self.appliquer_config_raid(bot_raid.charger_config())
+        self.journal("[Config] Réglages rechargés depuis les fichiers.")
 
     def reinitialiser(self):
         if messagebox.askyesno("Valeurs par défaut",
                                "Remettre tous les réglages à leurs valeurs par défaut ?"):
             self.appliquer_config(copy.deepcopy(CONFIG_DEFAUT))
+            self.appliquer_config_raid(copy.deepcopy(bot_raid.CONFIG_DEFAUT))
             self.journal("[Config] Valeurs par défaut restaurées (non enregistrées).")
 
     def tester_lecture(self):
@@ -496,8 +568,29 @@ class InterfaceBot(tk.Tk):
 
         sauver_config(config)
         self.arret = threading.Event()
-        bot = BotFarm(config, journal=self.journal, arret=self.arret)
+        self._demarrer(BotFarm(config, journal=self.journal, arret=self.arret))
 
+    def lancer_raid(self):
+        if self.thread and self.thread.is_alive():
+            return
+
+        config, erreurs = self.collecter_config_raid()
+        if erreurs:
+            messagebox.showerror("Réglages invalides", "\n".join("• " + e for e in erreurs))
+            return
+
+        problemes = bot_raid.valider_config(config)
+        if problemes:
+            messagebox.showerror("Impossible de lancer le raid",
+                                 "\n".join("• " + p for p in problemes))
+            return
+
+        bot_raid.sauver_config(config)
+        self.arret = threading.Event()
+        self._demarrer(bot_raid.BotRaid(config, journal=self.journal, arret=self.arret))
+
+    def _demarrer(self, bot):
+        """Lance `bot.executer()` dans un thread et verrouille les boutons de lancement."""
         def travail():
             try:
                 bot.executer()
@@ -508,6 +601,7 @@ class InterfaceBot(tk.Tk):
         self.thread.start()
 
         self.bouton_lancer.configure(state="disabled")
+        self.bouton_raid.configure(state="disabled")
         self.bouton_stop.configure(state="normal")
         self.etat.configure(text="● En cours", foreground="#0A7D28")
 
@@ -518,6 +612,7 @@ class InterfaceBot(tk.Tk):
 
     def _fin_execution(self):
         self.bouton_lancer.configure(state="normal")
+        self.bouton_raid.configure(state="normal")
         self.bouton_stop.configure(state="disabled")
         self.etat.configure(text="● Arrêté", foreground="#999999")
 

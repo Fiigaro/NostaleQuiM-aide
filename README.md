@@ -90,7 +90,13 @@ pip install pydirectinput
 python bot_raid.py
 ```
 
-La séquence est la liste `ETAPES` en haut du fichier (ou dans `config_raid.json`,
+**Depuis l'interface graphique** (`python bot_gui.py`) : onglet **Raid** pour écrire
+la séquence (une étape par ligne, ex. `touche r`, `attendre 1.5`, `maintenir up 2`,
+`attaque space 60 0.3`, `clic 960 540`), le nombre de raids et la pause entre deux,
+puis bouton **▶ Lancer le raid** en bas. Le bouton **Stop** (ou Échap) coupe le raid.
+Réglages enregistrés dans `config_raid.json`.
+
+En script, la séquence est la liste `ETAPES` en haut du fichier (ou dans `config_raid.json`,
 même format). Actions : `touche`, `attendre`, `maintenir`, `attaque`, `clic`.
 Les valeurs par défaut sont des exemples : règle les touches, la durée de
 l'`attaque` (= durée du raid) et l'étape de retour selon ton jeu.

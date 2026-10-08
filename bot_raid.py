@@ -84,6 +84,60 @@ def charger_config(chemin=None):
     return config
 
 
+def sauver_config(config, chemin=None):
+    chemin = chemin or FICHIER_CONFIG
+    with open(chemin, "w", encoding="utf-8") as fichier:
+        json.dump(config, fichier, indent=4, ensure_ascii=False)
+    return chemin
+
+
+# Format texte d'une étape, une par ligne (utilisé par l'interface graphique) :
+#   touche r | attendre 1.5 | maintenir up 2 | attaque space 60 [0.3] | clic 960 540
+_FORMATS = {
+    "touche": (("touche", str),),
+    "attendre": (("duree", float),),
+    "maintenir": (("touche", str), ("duree", float)),
+    "attaque": (("touche", str), ("duree", float), ("delai", float)),
+    "clic": (("x", int), ("y", int)),
+}
+
+
+def texte_vers_etapes(texte):
+    """Convertit le texte de l'éditeur en liste d'étapes. Lève ValueError."""
+    etapes = []
+    for numero, ligne in enumerate((texte or "").splitlines(), start=1):
+        ligne = ligne.strip()
+        if not ligne or ligne.startswith("#"):
+            continue
+        mots = ligne.split()
+        action, args = mots[0].lower(), mots[1:]
+        if action not in _FORMATS:
+            raise ValueError("Ligne %d : action inconnue '%s' (touche, attendre, "
+                             "maintenir, attaque, clic)." % (numero, mots[0]))
+        champs = _FORMATS[action]
+        obligatoires = len(champs) - (1 if action == "attaque" else 0)
+        if not obligatoires <= len(args) <= len(champs):
+            raise ValueError("Ligne %d ('%s') : nombre d'arguments incorrect." % (numero, ligne))
+        etape = {"action": action}
+        for (nom, type_), valeur in zip(champs, args):
+            try:
+                etape[nom] = type_(valeur.replace(",", ".") if type_ is float else valeur)
+            except ValueError:
+                raise ValueError("Ligne %d : '%s' n'est pas une valeur valide pour %s."
+                                 % (numero, valeur, nom))
+        etapes.append(etape)
+    return etapes
+
+
+def etapes_vers_texte(etapes):
+    lignes = []
+    for etape in etapes:
+        valeurs = [etape[nom] for nom, _ in _FORMATS[etape["action"]] if nom in etape]
+        lignes.append(" ".join([etape["action"]] + [
+            "%g" % v if isinstance(v, float) else str(v) for v in valeurs]))
+    return "\n".join(lignes)
+
+
 def valider_config(config):
     """Retourne la liste des problèmes bloquants (vide si tout va bien)."""
     problemes = []
