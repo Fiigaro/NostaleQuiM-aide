@@ -27,6 +27,7 @@ CONFIG_DEFAUT) ; sinon ce sont les valeurs ci-dessous.
 """
 
 import copy
+import ctypes
 import json
 import os
 import sys
@@ -38,7 +39,8 @@ try:
 except Exception:
     pydirectinput = None
 
-from bot_farm_nostale import ArretDemande, demarrer_surveillance_echap, dossier_base
+from bot_farm_nostale import (ArretDemande, demarrer_surveillance_echap, dossier_base,
+                              echap_pressee)
 
 
 # ===========================================================================
@@ -136,6 +138,55 @@ def etapes_vers_texte(etapes):
         lignes.append(" ".join([etape["action"]] + [
             "%g" % v if isinstance(v, float) else str(v) for v in valeurs]))
     return "\n".join(lignes)
+
+
+# ---------------------------------------------------------------------------
+# CAPTURE D'UN POINT À L'ÉCRAN
+# ---------------------------------------------------------------------------
+VK_CLIC_GAUCHE = 0x01
+
+
+def _souris_windows():
+    """Retourne (bouton_gauche_enfonce, position) via l'API Win32."""
+    if sys.platform != "win32":
+        raise RuntimeError("La capture de position nécessite Windows.")
+    user32 = ctypes.windll.user32
+
+    class Point(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    def bouton():
+        return bool(user32.GetAsyncKeyState(VK_CLIC_GAUCHE) & 0x8000)
+
+    def position():
+        point = Point()
+        user32.GetCursorPos(ctypes.byref(point))
+        return point.x, point.y
+
+    return bouton, position
+
+
+def capturer_clic(arret=None, timeout=30.0, souris=None, echap=echap_pressee):
+    """Attend un clic gauche n'importe où à l'écran et retourne (x, y).
+
+    Retourne None si l'attente est annulée (Échap, `arret` armé) ou expire.
+    Le clic en cours au moment de l'appel (celui du bouton de l'interface) est
+    ignoré : on attend d'abord que le bouton soit relâché.
+    """
+    bouton, position = souris or _souris_windows()
+    arret = arret or threading.Event()
+    fin = time.time() + timeout
+    while bouton():
+        if arret.is_set() or time.time() > fin:
+            return None
+        time.sleep(0.01)
+    while time.time() < fin:
+        if arret.is_set() or echap():
+            return None
+        if bouton():
+            return position()
+        time.sleep(0.01)
+    return None
 
 
 def valider_config(config):

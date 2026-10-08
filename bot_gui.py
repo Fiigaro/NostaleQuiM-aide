@@ -313,6 +313,17 @@ class InterfaceBot(tk.Tk):
         self._champ(boucle, 1, 0, "Pause entre raids (s) :", "RAID_PAUSE", largeur=8)
         self._champ(boucle, 2, 0, "Compte à rebours (s) :", "RAID_DELAI", largeur=8)
 
+        capture = ttk.LabelFrame(droite, text="Position d'un clic")
+        capture.pack(fill="x", pady=(8, 0))
+        self.bouton_capture = ttk.Button(capture, text="◎  Capturer un point",
+                                         command=self.capturer_point)
+        self.bouton_capture.pack(anchor="w", padx=8, pady=(6, 2))
+        ttk.Label(capture, foreground="#555555", justify="left",
+                  text=("La fenêtre se réduit : clique à l'endroit voulu dans\n"
+                        "le jeu et une ligne « clic X Y » est ajoutée à la\n"
+                        "séquence. ÉCHAP annule (30 s max).")
+                  ).pack(anchor="w", padx=8, pady=(0, 6))
+
         aide = ("Actions :\n"
                 "  touche r\n"
                 "  attendre 1.5\n"
@@ -324,7 +335,7 @@ class InterfaceBot(tk.Tk):
                 "Le bouton « Lancer le raid » (en bas) joue la\n"
                 "séquence en boucle. ÉCHAP ou Stop = arrêt.")
         ttk.Label(droite, text=aide, foreground="#555555", justify="left").pack(
-            anchor="w", padx=4, pady=12)
+            anchor="w", padx=4, pady=8)
 
     # --- Configuration <-> widgets ---------------------------------------
     def appliquer_config_raid(self, config):
@@ -550,6 +561,39 @@ class InterfaceBot(tk.Tk):
                              "Compare ces valeurs avec ton écran de jeu.")
 
         threading.Thread(target=travail, daemon=True).start()
+
+    def capturer_point(self):
+        """Réduit la fenêtre, attend un clic dans le jeu, ajoute « clic X Y »."""
+        if str(self.bouton_capture["state"]) == "disabled":
+            return
+        try:
+            souris = bot_raid._souris_windows()
+        except RuntimeError as erreur:
+            messagebox.showerror("Capture impossible", str(erreur))
+            return
+
+        self.bouton_capture.configure(state="disabled")
+        self.journal("[Capture] Clique à l'endroit voulu dans le jeu (ÉCHAP pour annuler, 30 s).")
+        self.iconify()
+
+        def travail():
+            point = bot_raid.capturer_clic(souris=souris)
+            self.after(0, lambda: self._fin_capture(point))
+
+        threading.Thread(target=travail, daemon=True).start()
+
+    def _fin_capture(self, point):
+        self.deiconify()
+        self.bouton_capture.configure(state="normal")
+        if point is None:
+            self.journal("[Capture] Annulée.")
+            return
+        texte = self.champ_etapes.get("1.0", "end-1c")
+        if texte and not texte.endswith("\n"):
+            self.champ_etapes.insert("end", "\n")
+        self.champ_etapes.insert("end", "clic %d %d\n" % point)
+        self.champ_etapes.see("end")
+        self.journal("[Capture] Point (%d, %d) ajouté à la fin de la séquence." % point)
 
     def lancer(self):
         if self.thread and self.thread.is_alive():

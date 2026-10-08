@@ -96,6 +96,12 @@ la séquence (une étape par ligne, ex. `touche r`, `attendre 1.5`, `maintenir u
 puis bouton **▶ Lancer le raid** en bas. Le bouton **Stop** (ou Échap) coupe le raid.
 Réglages enregistrés dans `config_raid.json`.
 
+Pour savoir où cliquer, utilise **◎ Capturer un point** (onglet Raid) : la fenêtre se
+réduit, tu cliques à l'endroit voulu dans le jeu, et une ligne `clic X Y` est ajoutée
+à la fin de la séquence (Échap annule, 30 s max). Le clic est aussi transmis au jeu.
+Les coordonnées sont absolues : garde la fenêtre du jeu au même endroit et à la même
+résolution.
+
 En script, la séquence est la liste `ETAPES` en haut du fichier (ou dans `config_raid.json`,
 même format). Actions : `touche`, `attendre`, `maintenir`, `attaque`, `clic`.
 Les valeurs par défaut sont des exemples : règle les touches, la durée de
