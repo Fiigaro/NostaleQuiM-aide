@@ -65,12 +65,9 @@ public sealed class StartupErrorWindow : Window
         {
             Text = "Le plus souvent : plusieurs clients sont ouverts, ou le numéro de processus a "
                    + "changé depuis le dernier lancement de NosTale.\n\n"
-                   + "Pour voir les clients détectés :\n"
-                   + "    dotnet run --project NosSmoothCustomClient -- --list\n\n"
-                   + "Pour savoir quelle fenêtre est quel numéro (elles clignotent une par une) :\n"
-                   + "    dotnet run --project NosSmoothCustomClient -- --identify\n\n"
-                   + "Puis relance en désignant le bon :\n"
-                   + "    dotnet run --project NosSmoothCustomClient.Gui -- --pcap --pid <numéro>",
+                   + "Ferme cette fenêtre et relance le programme sans rien derrière (double-clic sur "
+                   + "le .exe) : la fenêtre de démarrage liste les NosTale ouverts. Choisis le tien ; "
+                   + "« Faire clignoter sa fenêtre » montre lequel est lequel.",
             Foreground = Muted,
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap

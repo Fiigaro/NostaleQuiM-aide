@@ -12,6 +12,17 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
+  <!-- The .exe handed out (publier.bat): one file, nothing to install, no console window behind
+       it, and it asks for administrator rights by itself. dotnet run keeps the console and the
+       plain manifest, so the self-test still prints and the simulator still starts from an
+       ordinary terminal. -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.admin.manifest</ApplicationManifest>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.0.10" />
     <PackageReference Include="Avalonia.Desktop" Version="11.0.10" />

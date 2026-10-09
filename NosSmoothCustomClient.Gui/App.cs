@@ -4,8 +4,8 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using NosSmoothCustomClient.Configuration;
-using NosSmoothCustomClient.Diagnostics;
 using NosSmoothCustomClient.State;
 
 namespace NosSmoothCustomClient.Gui;
@@ -29,6 +29,15 @@ public sealed class App : Application
     /// <summary>Gets or sets the reason startup failed, when it did. Shown instead of the dashboard.</summary>
     public static string? StartupError { get; set; }
 
+    /// <summary>
+    /// Gets or sets the switches to start the launcher with, or null when the engine is already
+    /// running. Set when the program was started without naming a transport.
+    /// </summary>
+    public static string[]? LauncherArgs { get; set; }
+
+    /// <summary>Gets or sets the engine the launcher started, so it is stopped on exit.</summary>
+    public static IHost? Engine { get; set; }
+
     /// <inheritdoc />
     public override void Initialize()
     {
@@ -45,9 +54,11 @@ public sealed class App : Application
             // window exists leaves nothing to read it in.
             desktop.MainWindow = StartupError is { } error
                 ? new StartupErrorWindow(error)
-                : Services is not null
-                    ? CreateMainWindow(Services, Mode)
-                    : new StartupErrorWindow("Le moteur n'a pas pu être construit.");
+                : LauncherArgs is { } launcherArgs
+                    ? new LauncherWindow(launcherArgs)
+                    : Services is not null
+                        ? CreateMainWindow(Services, Mode)
+                        : new StartupErrorWindow("Le moteur n'a pas pu être construit.");
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -67,10 +78,6 @@ public sealed class App : Application
             services.GetRequiredService<BuffTracker>(),
             services.GetRequiredService<BotController>(),
             services.GetRequiredService<BotOptions>(),
-            services.GetRequiredService<LogBuffer>(),
-            services.GetRequiredService<PacketLog>(),
-            services.GetRequiredService<PacketFilter>(),
-            services.GetRequiredService<NosSmoothCustomClient.Input.ManualSender>(),
             mode,
             services.GetService<NosSmoothCustomClient.Input.SwitchableGameInput>(),
             services.GetService<NosSmoothCustomClient.Input.WaypointRecorder>(),

@@ -205,13 +205,13 @@ public static class SelfTest
             captureButtons = texts0.Zip(before).Any(pair => pair.First.Text != pair.Second);
         }
 
-        // Les deux boutons d'enregistrement, dans les deux endroits où on en a besoin.
+        // Les deux boutons d'enregistrement, là où un lancement s'enregistre.
         var buttons = visuals.OfType<Button>().ToList();
-        var starts = buttons.Where(b => b.Name is "runStart" or "launchRecStart").ToList();
-        var stops = buttons.Where(b => b.Name is "runStop" or "launchRecStop").ToList();
+        var starts = buttons.Where(b => b.Name is "launchRecStart").ToList();
+        var stops = buttons.Where(b => b.Name is "launchRecStop").ToList();
 
-        var recordingButtons = starts.Count == 2
-                               && stops.Count == 2
+        var recordingButtons = starts.Count == 1
+                               && stops.Count == 1
                                && starts.All(b => (b.Content as string)?.Contains("Commencer") == true)
                                && stops.All(b => (b.Content as string)?.Contains("Finir") == true);
 
@@ -307,55 +307,6 @@ public static class SelfTest
             options.Waypoints = before;
         }
 
-        // Un champ de filtre qui ne descend pas dans le filtre vivant, c'est une trace qu'on croit
-        // avoir réduite et qui continue de défiler.
-        var filterNarrows = false;
-        var filter = services.GetRequiredService<PacketFilter>();
-
-        if (visuals.OfType<TextBox>().FirstOrDefault(b => b.Name == "filterOnly") is { } onlyBox)
-        {
-            var before = filter.Only;
-            onlyBox.Text = "sr";
-            Dispatcher.UIThread.RunJobs();
-            filterNarrows = filter.Only == "sr";
-
-            onlyBox.Text = before;
-            Dispatcher.UIThread.RunJobs();
-        }
-
-        // La vue doit contenir ce que le transport a vraiment porté, et une ligne doit pouvoir
-        // repartir : lire une trame pour la rejouer est tout l'intérêt de l'onglet.
-        var packetsListed = false;
-        var packetCopies = false;
-        var sendAnswers = false;
-
-        var packetList = visuals.OfType<ListBox>().FirstOrDefault(l => l.Name == "packetList");
-        var sendBody = visuals.OfType<TextBox>().FirstOrDefault(b => b.Name == "sendBody");
-        var sendStatus = visuals.OfType<TextBlock>().FirstOrDefault(t => t.Name == "sendStatus");
-
-        if (packetList is not null && sendBody is not null)
-        {
-            packetsListed = packetList.ItemCount > 0;
-
-            if (packetsListed)
-            {
-                sendBody.Text = string.Empty;
-                packetList.SelectedIndex = 0;
-                Dispatcher.UIThread.RunJobs();
-                packetCopies = !string.IsNullOrWhiteSpace(sendBody.Text);
-            }
-
-            // Et un envoi vide doit dire qu'il est vide, jamais rester muet.
-            if (sendStatus is not null
-                && visuals.OfType<Button>().FirstOrDefault(b => b.Name == "sendGo") is { } sendButton)
-            {
-                sendBody.Text = string.Empty;
-                sendStatus.Text = string.Empty;
-                Click(sendButton);
-                sendAnswers = !string.IsNullOrWhiteSpace(sendStatus.Text);
-            }
-        }
-
         var (savedPath, saveError) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
         var saveWorks = savedPath is not null && File.Exists(savedPath);
         if (savedPath is not null)
@@ -383,7 +334,6 @@ public static class SelfTest
             ("moteur : journal alimenté", lines.Count > 20),
             ("moteur : paquets échangés", lines.Any(l => l.Message.Contains("[IN ]")) && lines.Any(l => l.Message.Contains("[OUT]"))),
             ("moteur : rotation active", lines.Any(l => l.Message.Contains("[OUT] u_s"))),
-            ("journal rendu dans l'UI", texts.Any(t => t.Contains("[IN ]"))),
 
             // Le panneau de réglages.
             ("cases à cocher par ligne", boxes.Count >= expectedRows),
@@ -404,7 +354,8 @@ public static class SelfTest
             ("diagnostic rendu", texts.Any(t => t.Contains("Cibler et attaquer"))),
 
             // Les deux métiers sont séparés : chercher un réglage de salle au milieu des réglages
-            // de farm, c'est devoir lire les deux pour savoir lequel s'applique.
+            // de farm, c'est devoir lire les deux pour savoir lequel s'applique. Et les onglets
+            // Paquets et Journal sont partis : la fenêtre ne garde que ce qui sert à jouer.
             ("onglets separes", TabsAreSeparate(window)),
 
             // Enregistrer s'applique à tous les onglets, donc il ne peut pas vivre au fond de l'un
@@ -423,8 +374,9 @@ public static class SelfTest
             // vrai jeu annonçait à son opérateur que rien n'était réel.
             ("le mode est nomme correctement", ModeIsNamedCorrectly()),
 
-            // Le panneau d'enregistrement de run, et le format des lignes qu'il affichera.
-            ("section run rendue", texts.Any(t => t.Contains("Joue la séquence à la main"))),
+            // La touche d'enregistrement a suivi le lancement qu'elle enregistre, et le format des
+            // lignes d'une run reste lisible.
+            ("touche d'enregistrement dans l'espace-temps", texts.Any(t => t.Contains("Touche d'enregistrement"))),
             ("une ligne de run se lit", RunEventReadsBack()),
 
             // Le mode instance doit être réglable depuis la fenêtre, sinon il faut éditer le JSON
@@ -454,9 +406,9 @@ public static class SelfTest
             // nomme doit suivre - un panneau qui dit encore F11 après coup est pire que rien.
             ("touche d'enregistrement reglable", recordKeyEdits),
 
-            // Deux boutons nommés plutôt qu'un bouton qui change de sens, et une paire là où un
-            // lancement s'enregistre : un bouton dans un autre onglet est un bouton absent. Sans
-            // enregistreur ils sont éteints, et le panneau dit pourquoi - jamais muets.
+            // Deux boutons nommés plutôt qu'un bouton qui change de sens, là où un lancement
+            // s'enregistre. Sans enregistreur ils sont éteints, et le panneau dit pourquoi -
+            // jamais muets.
             ("boutons commencer et finir presents", recordingButtons),
 
             // Capturer un point exige que la souris soit sur la minimap, donc un bouton ne peut pas
@@ -479,11 +431,6 @@ public static class SelfTest
             // trames d'interface s'écrivent avec des accents circonflexes.
             ("les en-tetes sont lus", HeadersAreRead()),
             ("le filtre garde et jette", FilterKeepsAndDrops()),
-            ("le filtre atteint la trace en direct", filterNarrows),
-            ("les paquets captures sont listes", packetsListed),
-            ("une ligne se recopie dans l'envoi", packetCopies),
-            ("le bouton d'envoi repond toujours", sendAnswers),
-            ("le journal se met en pause", LogPauses(visuals)),
 
             // Le coeur de l'affaire : demander quatre fois doit envoyer quatre fois, et chaque
             // envoi doit se retrouver dans la trace - un compteur seul décrirait aussi bien une
@@ -493,7 +440,13 @@ public static class SelfTest
 
             ("diagnostic explique les blocages", BotReadiness.Describe(options, state, null)
                 .Where(i => !i.Ready)
-                .All(i => !string.IsNullOrWhiteSpace(i.Detail) && texts.Contains(i.Detail)))
+                .All(i => !string.IsNullOrWhiteSpace(i.Detail) && texts.Contains(i.Detail))),
+
+            // Le lanceur remplace la ligne de commande : chaque choix doit s'écrire exactement
+            // comme les options qu'on tapait, sinon cliquer et taper ne lient pas le même jeu.
+            ("le lanceur ecrit les bonnes options", LauncherArgsMatchCommandLine()),
+            ("le lanceur liste les NosTale", LauncherBuilds()),
+            ("le lanceur ouvre la fenetre principale", LauncherStartsTheEngine())
         };
 
         var failed = 0;
@@ -636,25 +589,6 @@ public static class SelfTest
                && reloaded.RewardSequence[1].Y == 571;
     }
 
-    private static bool LogPauses(List<Visual> visuals)
-    {
-        var pause = visuals.OfType<Button>().FirstOrDefault(b => b.Name == "logPause");
-        var log = visuals.OfType<SelectableTextBlock>().FirstOrDefault(t => t.TextWrapping == Avalonia.Media.TextWrapping.NoWrap);
-        if (pause is null || log is null)
-        {
-            return false;
-        }
-
-        Click(pause);
-        var frozen = log.Text;
-        _services!.GetRequiredService<ILoggerFactory>().CreateLogger("test").LogInformation("ligne arrivee pendant la pause");
-        Dispatcher.UIThread.RunJobs();
-        var held = log.Text == frozen;
-
-        Click(pause);
-        return held;
-    }
-
     private static bool HeadersAreRead()
         => PacketFilter.HeaderOf("u_i 1 123 0 3 0") == "u_i"
            && PacketFilter.HeaderOf("1043 walk 55 60 0 11") == "walk"
@@ -765,6 +699,92 @@ public static class SelfTest
                && entry.Summary.Contains("mobs=7");
     }
 
+    private static bool LauncherArgsMatchCommandLine()
+    {
+        var play = CommandLine.Parse(LauncherWindow.BuildArgs(LaunchMode.Play, 4242, Array.Empty<string>()));
+        var observe = CommandLine.Parse(LauncherWindow.BuildArgs(LaunchMode.Observe, null, Array.Empty<string>()));
+        var simulate = CommandLine.Parse(LauncherWindow.BuildArgs(LaunchMode.Simulate, 4242, new[] { "--verbose" }));
+
+        return play is { Mode: RunMode.Pcap, Play: true, ProcessId: 4242, TransportRequested: true }
+               && observe is { Mode: RunMode.Pcap, Play: false, ProcessId: null, TransportRequested: true }
+
+               // A pid means nothing to the simulator, and passing one would only mislead.
+               && simulate is { Mode: RunMode.Simulate, ProcessId: null, Verbose: true, TransportRequested: true };
+    }
+
+    private static bool LauncherBuilds()
+    {
+        var launcher = new LauncherWindow(Array.Empty<string>());
+        launcher.Show();
+        Pump(() => launcher.Scanned.IsCompleted, TimeSpan.FromSeconds(30));
+
+        var visuals = launcher.GetVisualDescendants().ToList();
+        var clients = visuals.OfType<ListBox>().FirstOrDefault(l => l.Name == "clients");
+        var scan = visuals.OfType<TextBlock>().FirstOrDefault(t => t.Name == "scanStatus");
+
+        // Automatic is always offered and always first: on a machine with no client it is the only
+        // line, and the scan has to say why rather than show an empty box.
+        var built = clients is { ItemCount: >= 1 }
+                    && clients.Items[0]?.ToString()?.Contains("Automatique") == true
+                    && !string.IsNullOrWhiteSpace(scan?.Text)
+                    && visuals.OfType<RadioButton>().Count() == 3
+                    && visuals.OfType<Button>().Any(b => b.Name == "start");
+
+        launcher.Close();
+        return built;
+    }
+
+    private static bool LauncherStartsTheEngine()
+    {
+        // The click handler awaits the engine and comes back to the UI thread to open the window,
+        // which needs the dispatcher's context on this thread - the real app installs it itself.
+        AvaloniaSynchronizationContext.InstallIfNeeded();
+
+        var launcher = new LauncherWindow(Array.Empty<string>());
+        launcher.Show();
+        Pump(() => launcher.Scanned.IsCompleted, TimeSpan.FromSeconds(30));
+        launcher.Select(LaunchMode.Simulate);
+
+        var before = App.Engine;
+        var start = launcher.GetVisualDescendants().OfType<Button>().First(b => b.Name == "start");
+        start.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        Pump(() => !launcher.IsVisible, TimeSpan.FromSeconds(60));
+
+        var engine = App.Engine;
+        var opened = !launcher.IsVisible
+                     && engine is not null
+                     && engine != before
+                     && App.Mode == RunMode.Simulate;
+
+        // The dashboard has to be the one built on the engine just started, not on the one the
+        // self-test runs: a launcher that opened a window on stale services would look the same.
+        var dashboard = launcher.Dashboard is { IsVisible: true }
+                        && App.Services is not null
+                        && App.Services != _services
+                        && App.Services.GetService<ProtocolStateManager>() is not null;
+
+        launcher.Dashboard?.Close();
+        App.Engine = null;
+        App.Services = _services;
+        Engine.StopAsync(engine).GetAwaiter().GetResult();
+
+        return opened && dashboard;
+    }
+
+    private static void Pump(Func<bool> done, TimeSpan timeout)
+    {
+        var until = DateTime.UtcNow + timeout;
+
+        while (!done() && DateTime.UtcNow < until)
+        {
+            Dispatcher.UIThread.RunJobs();
+            Thread.Sleep(50);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private static bool ModeIsNamedCorrectly()
     {
         // Shown before reading: an unrealised window has no visual tree, so the assertion would
@@ -799,7 +819,7 @@ public static class SelfTest
         // And the way out has to be there too, or the message is a dead end.
         var hasHelp = window.GetVisualDescendants()
             .OfType<TextBlock>()
-            .Any(t => (t.Text ?? string.Empty).Contains("--identify"));
+            .Any(t => (t.Text ?? string.Empty).Contains("Faire clignoter"));
 
         window.Close();
         return shown && hasHelp;
@@ -845,7 +865,8 @@ public static class SelfTest
         return headers.Contains("Farm")
                && headers.Contains("Espace-temps")
                && headers.Contains("Combat")
-               && headers.Contains("Paquets");
+               && !headers.Contains("Paquets")
+               && !headers.Contains("Journal");
     }
 
     private static bool DecisionStaysOnTop(Window window)

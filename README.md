@@ -9,7 +9,7 @@ dotnet build
 
 dotnet run --project NosSmoothCustomClient              # console, simulateur
 dotnet run --project NosSmoothCustomClient -- --verbose # + détail par tick
-dotnet run --project NosSmoothCustomClient.Gui          # fenêtre Avalonia
+dotnet run --project NosSmoothCustomClient.Gui          # fenêtre Avalonia (fenêtre de démarrage)
 dotnet run --project NosSmoothCustomClient.Gui -- --selftest  # test headless du moteur + de l'UI
 
 # lire le trafic d'un vrai client, en lecture seule (Npcap + admin requis)
@@ -22,6 +22,26 @@ dotnet run --project NosSmoothCustomClient -- --pcap --hide ""
 
 dotnet run --project NosSmoothCustomClient -- --help
 ```
+
+## Sans ligne de commande : l'exe
+
+Double-clique sur `NosSmoothCustomClient.exe` : Windows demande les droits administrateur, puis une
+fenêtre de démarrage remplace toutes les options ci-dessus.
+
+1. **Ton NosTale** : la liste montre les clients ouverts (numéro, heure d'ouverture, titre, position
+   de la fenêtre). Choisis le tien, ou laisse **Automatique** s'il n'y en a qu'un.
+   **Faire clignoter sa fenêtre** montre lequel est lequel quand plusieurs sont ouverts.
+2. **Mode** : *Jouer* (`--pcap --play`, démarre en pause : clique « Reprendre » quand le perso est
+   prêt), *Observer* (`--pcap`, rien n'est envoyé au jeu) ou *Simulateur* (`--simulate`, sans jeu).
+3. **Démarrer**. Si le bot ne peut pas se lier, la raison s'affiche dans la même fenêtre : choisis un
+   autre client ou un autre mode et recommence.
+
+Prérequis : [Npcap](https://npcap.com) installé (case « WinPcap API-compatible Mode » cochée), et
+NosTale ouvert avec le personnage connecté. Garde `appsettings.json` à côté de l'exe.
+
+**Fabriquer l'exe** : double-clique sur `publier.bat` (il faut le SDK .NET 8). Il apparaît dans
+`dist\NosSmoothCustomClient.exe` : un seul fichier, sans .NET à installer sur la machine qui le lance,
+et sans fenêtre de console derrière. `dotnet run` sans option ouvre la même fenêtre de démarrage.
 
 ## Configuration
 
@@ -56,66 +76,24 @@ Les reglages vivent dans `appsettings.json`, et la fenetre permet de cocher/deco
 chaque buff et d'ajuster leurs temps a chaud. Le bouton d'enregistrement ecrit
 `appsettings.local.json`, relu au lancement suivant.
 
-## Lire les paquets, et en renvoyer
+## Lire les paquets
 
-L'onglet **Paquets** de la fenêtre fait les deux moitiés d'un même travail : trouver la trame qui
-correspond à une action, puis la rejouer.
+La fenêtre ne montre plus la trace des paquets ni l'envoi manuel : elle garde ce qui sert à jouer.
+La trace reste lisible depuis le front-end console, avec les mêmes filtres :
 
-### Filtrer la trace
-
-Une session NosTale, c'est surtout des déplacements et des apparitions. La trame cherchée — une
-amélioration, un clic de PNJ, un objet utilisé — passe une fois entre deux cents lignes de fond. Deux
-listes d'en-têtes décident de ce qui s'affiche :
-
-| Champ | Effet |
+| Option | Effet |
 |---|---|
-| **Seulement** | vide = tout ce qui n'est pas caché ; rempli, il est seul à décider |
-| **Cacher** | le bruit de fond, préréglé sur `mv in out cond eff st pairy rsfi fs char_sc` |
-| **Contenant** | filtre aussi sur les arguments, pas seulement l'en-tête |
-| **Sens** | ce que le client envoie est en `OUT`, ce qu'il reçoit en `IN` |
+| `--only "u_i guri"` | seulement ces en-têtes ; rempli, il est seul à décider |
+| `--hide "..."` | le bruit de fond, préréglé sur `mv in out cond eff st pairy rsfi fs char_sc` ; `--hide ""` montre le flux brut |
 
-Un en-tête nommé dans **Seulement** l'emporte sur **Cacher** : c'est une demande explicite. Vide
-**Cacher** pour retrouver le flux brut.
-
-Le filtrage se fait **à la lecture**, pas à la capture : tout est gardé dans un anneau de 4 000
-trames, donc élargir le filtre montre ce qui est déjà passé au lieu d'attendre la suite. L'en-tête
-est lu correctement dans les trois formes qui existent — `u_i 1 …`, `1043 walk …` (le numéro de
-séquence que le client met devant ses trames) et `#guri^710^1^1`.
-
-Les mêmes listes existent en ligne de commande, `--only "u_i guri"` et `--hide ""`, et se gardent
-dans `appsettings.json` sous `PacketTrace`.
-
-### Renvoyer ce qu'on a lu
-
-Certaines actions sont lentes parce que le client les met en scène, pas parce que le serveur
-l'exige : une tentative d'amélioration qui prend huit secondes à l'écran est une trame envoyée une
-fois. Fais l'action une fois à la main, mets la vue en pause, clique la ligne — elle se recopie dans
-le champ d'envoi — puis dis combien de fois et à quel rythme.
-
-| Quoi envoyer | Par où ça part | Disponible |
-|---|---|---|
-| **Paquet vers le serveur** | `INostaleClient.SendPacketAsync` | `--attach`, `--simulate` |
-| **Paquet vers le client** | `INostaleClient.ReceivePacketAsync` | `--attach`, `--simulate` |
-| **Touche du jeu** | le clavier, comme le bot | partout où une fenêtre est liée |
-| **Clic (`x,y`)** | la souris, comme le bot | partout où une fenêtre est liée |
-
-Une instruction par ligne ; `{i}` est remplacé par le numéro du passage, ce qui permet de balayer
-des slots. L'attente sépare deux envois — **le serveur garde ses propres délais**, donc envoyer plus
-vite qu'il n'accepte ne va pas plus vite et peut faire déconnecter. Un envoi s'interrompt au premier
-refus plutôt que de continuer à l'aveugle, et le bouton **Arrêter** le coupe en cours. Les envois se
-gardent sous un nom et sont écrits avec les autres réglages.
-
-### Ce que la capture ne peut pas faire
+Un en-tête nommé dans `--only` l'emporte sur `--hide`. L'en-tête est lu correctement dans les trois
+formes qui existent — `u_i 1 …`, `1043 walk …` (le numéro de séquence que le client met devant ses
+trames) et `#guri^710^1^1`. Les listes se gardent aussi dans `appsettings.json` sous `PacketTrace`.
 
 **En `--pcap`, aucun paquet ne peut être envoyé.** Ce n'est pas un réglage : `NosSmooth.Pcap` laisse
 `SendPacketAsync` et `ReceivePacketAsync` non implémentées, parce qu'écrire dans une connexion TCP
 qu'on ne fait qu'écouter demanderait d'en usurper les numéros de séquence, ce qui casserait le flux
-du vrai client. La fenêtre le dit et éteint le bouton plutôt que de laisser cliquer sur une erreur.
-
-En capture, ce qui se répète est donc une **touche** ou un **clic** — les mêmes chemins que le bot
-utilise déjà. Pour l'amélioration d'une SP, cela veut dire relever une fois les coordonnées du
-bouton, puis les rejouer : `467,460`, cinquante fois, toutes les 1 200 ms. Pour envoyer la trame
-elle-même, il faut `--attach`.
+du vrai client. Le bot agit donc par touches et clics, comme un joueur.
 
 ## Transports
 
@@ -133,10 +111,10 @@ ce qui décide si les touches partent. L'envoi de paquets, lui, n'est pas une qu
 
 Prérequis : Npcap sur Windows, et un processus élevé.
 
-Publication en `.exe` autonome (aucune installation requise sur la machine cible) :
+Publication en `.exe` autonome : `publier.bat`, ou à la main :
 
 ```bash
-dotnet publish NosSmoothCustomClient.Gui -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true
+dotnet publish NosSmoothCustomClient.Gui -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true -p:DebugType=none -o dist
 ```
 
 ## Structure
@@ -146,6 +124,9 @@ dotnet publish NosSmoothCustomClient.Gui -c Release -r win-x86 --self-contained 
 | `NosSmoothCustomClient.Core` | Tout le moteur : paquets, responders, état, rotation, orchestration |
 | `NosSmoothCustomClient` | Front-end console |
 | `NosSmoothCustomClient.Gui` | Tableau de bord Avalonia |
+
+Le bot Python à côté (lecture mémoire, `bot_gui.py`, espace-temps) a son propre guide :
+`BOT_PYTHON.md` et `TUTO_ESPACE_TEMPS.md`.
 
 Le câblage DI vit dans `Core/BotServiceRegistration.cs` et est appelé par les deux front-ends : un
 comportement vérifié dans l'un est celui que l'on obtient dans l'autre.
