@@ -82,9 +82,25 @@ public static class Engine
         host.Dispose();
     }
 
+    /// <summary>
+    /// Opens the settings file carried inside the program, when it was built with one.
+    /// </summary>
+    /// <returns>The stream, or null.</returns>
+    public static Stream? OpenDefaultSettings()
+        => typeof(Engine).Assembly.GetManifestResourceStream("appsettings.default.json");
+
     private static IHost BuildHost(CommandLine cli, string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
+
+        // No settings file next to the program - an .exe opened straight from its archive, or
+        // copied on its own - would otherwise start on the built-in defaults: skills with no key
+        // and no buff at all. The copy carried inside the program stands in for it.
+        if (!File.Exists(Path.Combine(builder.Environment.ContentRootPath, "appsettings.json"))
+            && OpenDefaultSettings() is { } defaults)
+        {
+            builder.Configuration.AddJsonStream(defaults);
+        }
 
         // Loaded after appsettings.json so anything tuned in the window wins over the file.
         builder.Configuration.AddJsonFile(LocalConfigurationWriter.FileName, optional: true, reloadOnChange: false);

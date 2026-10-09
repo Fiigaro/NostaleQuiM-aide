@@ -37,7 +37,13 @@ fenêtre de démarrage remplace toutes les options ci-dessus.
    autre client ou un autre mode et recommence.
 
 Prérequis : [Npcap](https://npcap.com) installé (case « WinPcap API-compatible Mode » cochée), et
-NosTale ouvert avec le personnage connecté. Garde `appsettings.json` à côté de l'exe.
+NosTale ouvert avec le personnage connecté. Garde `appsettings.json` à côté de l'exe ; s'il manque,
+l'exe utilise la copie qu'il embarque.
+
+Les PV s'affichent dès que le jeu les envoie, et il ne les envoie que quand ils changent : à pleine
+vie, la barre dit « en attente du jeu » jusqu'au premier coup, soin ou potion, ou jusqu'à un clic sur
+ton personnage. Si **Paquets du jeu** (onglet Vue d'ensemble) reste à zéro, la capture ne voit pas le
+jeu : mauvais NosTale choisi, ou Npcap absent.
 
 **Fabriquer l'exe** : double-clique sur `publier.bat` (il faut le SDK .NET 8). Il apparaît dans
 `dist\NosSmoothCustomClient.exe` : un seul fichier, sans .NET à installer sur la machine qui le lance,
@@ -72,8 +78,10 @@ dotnet run --project NosSmoothCustomClient.Gui -- --pcap
 dotnet run --project NosSmoothCustomClient.Gui -- --pcap --play
 ```
 
-Les reglages vivent dans `appsettings.json`, et la fenetre permet de cocher/decocher chaque sort et
-chaque buff et d'ajuster leurs temps a chaud. Le bouton d'enregistrement ecrit
+Les reglages vivent dans `appsettings.json`, et l'onglet **Combat** de la fenetre permet d'ajouter,
+retirer, renommer et cocher/decocher chaque sort et chaque buff, d'en changer la **touche** et
+d'ajuster leurs temps a chaud. L'exe embarque aussi une copie de `appsettings.json` : lance sans le
+fichier a cote, il garde ces reglages plutot que des sorts sans touche et aucun buff. Le bouton d'enregistrement ecrit
 `appsettings.local.json`, relu au lancement suivant.
 
 ## Lire les paquets

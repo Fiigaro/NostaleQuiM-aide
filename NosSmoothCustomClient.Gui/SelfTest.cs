@@ -307,6 +307,41 @@ public static class SelfTest
             options.Waypoints = before;
         }
 
+        // La touche d'un sort se règle dans sa ligne, et atteint la rotation que le moteur lit.
+        var skillKeyEdits = false;
+        if (options.Skills.Count > 0
+            && visuals.OfType<TextBox>().FirstOrDefault(b => b.Name == "skillKey") is { } skillKey)
+        {
+            var before = skillKey.Text;
+            skillKey.Text = "7";
+            Dispatcher.UIThread.RunJobs();
+            skillKeyEdits = options.Skills[0].Key == "7";
+
+            skillKey.Text = before;
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // Un buff s'ajoute et se retire depuis la fenêtre : sans ça, une configuration sans buff
+        // n'a aucun moyen d'en avoir un.
+        var buffAddsAndRemoves = false;
+        if (visuals.OfType<Button>().FirstOrDefault(b => b.Name == "addBuff") is { } addBuff)
+        {
+            var before = options.Buffs.Count;
+            Click(addBuff);
+            var added = options.Buffs.Count == before + 1
+                        && Realise(window).OfType<TextBox>().Count(b => b.Name == "buffKey") == before + 1;
+
+            var remove = Realise(window).OfType<Button>()
+                .LastOrDefault(b => ToolTip.GetTip(b) is string tip && tip.StartsWith("Ne plus entretenir", StringComparison.Ordinal));
+
+            if (remove is not null)
+            {
+                Click(remove);
+            }
+
+            buffAddsAndRemoves = added && options.Buffs.Count == before;
+        }
+
         var (savedPath, saveError) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
         var saveWorks = savedPath is not null && File.Exists(savedPath);
         if (savedPath is not null)
@@ -444,6 +479,19 @@ public static class SelfTest
 
             // Le lanceur remplace la ligne de commande : chaque choix doit s'écrire exactement
             // comme les options qu'on tapait, sinon cliquer et taper ne lient pas le même jeu.
+            ("la touche d'un sort se regle", skillKeyEdits),
+            ("un buff s'ajoute et se retire", buffAddsAndRemoves),
+
+            // Le serveur n'envoie stat que quand les PV changent : à pleine vie, rien n'arrive. Le
+            // st de son propre personnage les donne aussi, et en attendant la fenêtre le dit plutôt
+            // que d'afficher 0 / 0.
+            ("les PV se lisent sur st", OwnVitalsReadFromSt()),
+            ("les PV inconnus s'annoncent", UnknownVitalsAreSaid()),
+
+            // Un exe lancé sans son fichier de réglages à côté joue quand même avec : des sorts
+            // avec leurs touches et des buffs, pas les défauts sans touche et sans buff.
+            ("les reglages voyagent dans l'exe", DefaultSettingsAreCarried()),
+
             ("le lanceur ecrit les bonnes options", LauncherArgsMatchCommandLine()),
             ("le lanceur liste les NosTale", LauncherBuilds()),
             ("le lanceur ouvre la fenetre principale", LauncherStartsTheEngine())
@@ -697,6 +745,78 @@ public static class SelfTest
                && entry.Summary.Contains("842,511")
                && entry.Summary.Contains("carte 12")
                && entry.Summary.Contains("mobs=7");
+    }
+
+    private static bool OwnVitalsReadFromSt()
+    {
+        var state = new ProtocolStateManager(new BotOptions());
+        state.SetOwnCharacterId(4242);
+
+        var responder = new NosSmoothCustomClient.Responders.TargetHpResponder
+        (
+            state,
+            new RunJournal(),
+            _services!.GetRequiredService<ILogger<NosSmoothCustomClient.Responders.TargetHpResponder>>()
+        );
+
+        // A server that leaves the maxima out: they are worked back from the percentages.
+        var own = new NosSmooth.Packets.Server.Entities.StPacket
+        (
+            NosSmooth.Packets.Enums.Entities.EntityType.Player, 4242, 90, 0, 50, 80, 14720, 25600, 0, 0, null
+        );
+
+        responder.Respond(new NosSmooth.Core.Packets.PacketEventArgs<NosSmooth.Packets.Server.Entities.StPacket>(PacketSource.Server, own, "st"))
+            .GetAwaiter().GetResult();
+
+        return state.CurrentHp == 14720 && state.MaxHp == 29440 && state.CurrentMp == 25600 && state.MaxMp == 32000
+
+               // And it is not taken for a target, nor a kill.
+               && state.Target is null;
+    }
+
+    private static bool UnknownVitalsAreSaid()
+    {
+        var services = _services!;
+        var window = new MainWindow
+        (
+            new ProtocolStateManager(services.GetRequiredService<BotOptions>()),
+            services.GetRequiredService<SkillRotation>(),
+            services.GetRequiredService<BuffTracker>(),
+            services.GetRequiredService<BotController>(),
+            services.GetRequiredService<BotOptions>(),
+            RunMode.Pcap
+        );
+
+        window.Show();
+        window.Refresh();
+        Dispatcher.UIThread.RunJobs();
+
+        var visuals = window.GetVisualDescendants().ToList();
+        var texts = visuals.OfType<TextBlock>().Select(t => t.Text ?? string.Empty).ToList();
+        var hint = visuals.OfType<TextBlock>().FirstOrDefault(t => t.Name == "vitalsHint");
+
+        window.Close();
+
+        return texts.Count(t => t == "en attente du jeu") == 2
+               && !texts.Any(t => t.StartsWith("0 / 0", StringComparison.Ordinal))
+               && hint is { IsVisible: true };
+    }
+
+    private static bool DefaultSettingsAreCarried()
+    {
+        using var stream = Engine.OpenDefaultSettings();
+        if (stream is null)
+        {
+            return false;
+        }
+
+        var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
+        var options = BotConfigurationFile.Apply(configuration).Options;
+
+        return options.Buffs.Count > 0
+               && options.Buffs.All(b => !string.IsNullOrWhiteSpace(b.Key))
+               && options.Skills.Count > 0
+               && options.Skills.All(s => !string.IsNullOrWhiteSpace(s.Key));
     }
 
     private static bool LauncherArgsMatchCommandLine()

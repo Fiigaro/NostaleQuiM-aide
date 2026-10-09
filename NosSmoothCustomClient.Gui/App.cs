@@ -83,6 +83,7 @@ public sealed class App : Application
             services.GetService<NosSmoothCustomClient.Input.WaypointRecorder>(),
             services.GetService<NosSmoothCustomClient.Orchestration.OrchestrationBackgroundService>(),
             services.GetService<NosSmoothCustomClient.Input.RunRecorder>(),
-            services.GetService<NosSmoothCustomClient.Orchestration.RaidMacro>()
+            services.GetService<NosSmoothCustomClient.Orchestration.RaidMacro>(),
+            services.GetService<NosSmoothCustomClient.Diagnostics.PacketCounter>()
         );
 }

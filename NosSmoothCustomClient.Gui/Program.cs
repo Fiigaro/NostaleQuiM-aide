@@ -104,20 +104,18 @@ public static class Program
             .LogToTrace();
 
     /// <summary>
-    /// Settles on the folder next to the .exe when the current one holds no settings.
+    /// Settles on the folder next to the .exe unless the current one holds the settings.
     /// </summary>
     /// <remarks>
     /// Settings are read from, and saved to, the current folder. A double-click starts there, but a
     /// shortcut or an elevation prompt can start in C:\Windows\System32 - and an elevated process
-    /// would happily write its settings into it. A folder that already holds settings is kept, so
-    /// <c>dotnet run</c> from the repository still reads the repository's files.
+    /// would happily write its settings into it. A folder holding appsettings.json is kept, so
+    /// <c>dotnet run</c> from the repository still reads the repository's files; anywhere else, the
+    /// program's own folder is where its settings live.
     /// </remarks>
     private static void UseProgramDirectoryWhenLost()
     {
-        var current = Directory.GetCurrentDirectory();
-
-        if (File.Exists(Path.Combine(current, "appsettings.json"))
-            || File.Exists(Path.Combine(current, LocalConfigurationWriter.FileName)))
+        if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json")))
         {
             return;
         }

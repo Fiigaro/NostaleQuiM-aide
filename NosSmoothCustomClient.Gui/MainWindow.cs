@@ -50,6 +50,17 @@ public sealed class MainWindow : Window
     private readonly TextBlock _target = Mono();
     private readonly TextBlock _entities = Mono();
     private readonly TextBlock _map = Mono();
+    private readonly TextBlock _packetsRead = Mono();
+    private readonly TextBlock _vitalsHint = new()
+    {
+        Name = "vitalsHint",
+        Foreground = Cooling,
+        FontSize = 11.5,
+        TextWrapping = TextWrapping.Wrap,
+        IsVisible = false,
+        Text = "Le jeu n'envoie tes PV que quand ils changent : prends un coup, bois une potion ou "
+               + "clique sur ton personnage, et ils s'affichent."
+    };
     private readonly TextBlock _decision = new()
     {
         Foreground = Muted,
@@ -62,6 +73,8 @@ public sealed class MainWindow : Window
     private readonly Button _save = new() { Content = "Enregistrer les réglages", Height = 30 };
     private readonly Button _resetSkills = new() { Content = "Remettre tous les sorts à zéro", Height = 30 };
     private readonly Button _resetBuffs = new() { Content = "Remettre tous les buffs à zéro", Height = 30 };
+    private readonly Button _addSkill = new() { Name = "addSkill", Content = "+ Ajouter un sort", Height = 30 };
+    private readonly Button _addBuff = new() { Name = "addBuff", Content = "+ Ajouter un buff", Height = 30 };
     private readonly TextBlock _saveStatus = new() { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
     private readonly List<SkillRow> _skillRows = new();
     private readonly List<BuffRow> _buffRows = new();
@@ -71,6 +84,7 @@ public sealed class MainWindow : Window
     private readonly OrchestrationBackgroundService? _loop;
     private readonly RunRecorder? _runs;
     private readonly RaidMacro? _raid;
+    private readonly PacketCounter? _packetCounter;
 
     private readonly TextBox _raidKey = new() { Name = "raidKey", Width = 90, Height = 32 };
     private readonly TextBox _raidAttackKey = new() { Name = "raidAttackKey", Width = 90, Height = 32 };
@@ -247,9 +261,11 @@ public sealed class MainWindow : Window
         WaypointRecorder? recorder = null,
         OrchestrationBackgroundService? loop = null,
         RunRecorder? runs = null,
-        RaidMacro? raid = null
+        RaidMacro? raid = null,
+        PacketCounter? packetCounter = null
     )
     {
+        _packetCounter = packetCounter;
         _raid = raid;
         _input = input;
         _recorder = recorder;
@@ -278,6 +294,8 @@ public sealed class MainWindow : Window
         _save.Click += (_, _) => SaveSettings();
         _resetSkills.Click += (_, _) => { _rotation.ResetAll(); Refresh(); };
         _resetBuffs.Click += (_, _) => { _buffs.Reset(); Refresh(); };
+        _addSkill.Click += (_, _) => AddSkill();
+        _addBuff.Click += (_, _) => AddBuff();
         _live.Click += (_, _) => ToggleLive();
         _arm.Click += (_, _) => ToggleArm();
         _clearRoute.Click += (_, _) => ClearRoute();
@@ -440,12 +458,24 @@ public sealed class MainWindow : Window
         var maxHp = _state.MaxHp;
         var maxMp = _state.MaxMp;
 
-        _hpBar.Value = _state.HpRatio * 100;
-        _mpBar.Value = _state.MpRatio * 100;
-        _hpText.Text = $"{_state.CurrentHp} / {maxHp}   ({_state.HpRatio:P0})";
-        _mpText.Text = $"{_state.CurrentMp} / {maxMp}   ({_state.MpRatio:P0})";
-        _hpText.Foreground = _state.IsHpCritical ? Blocked : Ink;
-        _mpText.Foreground = _state.IsMpCritical ? Blocked : Ink;
+        // Nothing received yet reads as "unknown", never as 0 / 0: the ratio of an unknown maximum
+        // is taken as full by the engine, and a full bar over a zero would look like a broken read.
+        _hpBar.Value = maxHp > 0 ? _state.HpRatio * 100 : 0;
+        _mpBar.Value = maxMp > 0 ? _state.MpRatio * 100 : 0;
+        _hpText.Text = maxHp > 0 ? $"{_state.CurrentHp} / {maxHp}   ({_state.HpRatio:P0})" : "en attente du jeu";
+        _mpText.Text = maxMp > 0 ? $"{_state.CurrentMp} / {maxMp}   ({_state.MpRatio:P0})" : "en attente du jeu";
+        _hpText.Foreground = maxHp <= 0 ? Muted : _state.IsHpCritical ? Blocked : Ink;
+        _mpText.Foreground = maxMp <= 0 ? Muted : _state.IsMpCritical ? Blocked : Ink;
+        _vitalsHint.IsVisible = maxHp <= 0 && _mode != RunMode.Simulate;
+
+        if (_packetCounter is not null)
+        {
+            var total = _packetCounter.Total;
+            _packetsRead.Text = total == 0
+                ? "aucun pour l'instant"
+                : $"{_packetCounter.FromServer} reçus, {_packetCounter.FromClient} envoyés";
+            _packetsRead.Foreground = total == 0 ? Blocked : Ink;
+        }
 
         var position = _state.Position;
         _position.Text = $"({position.X}, {position.Y})";
@@ -779,6 +809,7 @@ public sealed class MainWindow : Window
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(VitalRow("PV", _hpBar, _hpText));
         panel.Children.Add(VitalRow("PM", _mpBar, _mpText));
+        panel.Children.Add(_vitalsHint);
         return Section("Vitaux", panel);
     }
 
@@ -797,50 +828,59 @@ public sealed class MainWindow : Window
         AddCell(grid, 1, 2, "Entités", _entities);
         AddCell(grid, 2, 0, "Waypoint", _waypoint);
 
+        // Whether the capture sees the game at all. Zero here means every other line on this tab
+        // is waiting on nothing - the wrong NosTale picked, or Npcap not capturing.
+        AddCell(grid, 2, 2, "Paquets du jeu", _packetsRead);
+
         return Section("État", grid);
     }
 
     private void BuildSkillRows()
     {
+        _skillRows.Clear();
+        _skills.Children.Clear();
+        _skills.Children.Add(RowHeader("Recharge (s)"));
+
         for (var i = 0; i < _options.Skills.Count; i++)
         {
             var index = i;
             var skill = _options.Skills[index];
             var row = new SkillRow { Index = index };
 
-            row.Enabled = new CheckBox
-            {
-                IsChecked = skill.Enabled,
-                Content = skill.Name,
-                Foreground = Ink,
-                FontSize = 13,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            var enabled = RowCheckBox(skill.Enabled);
+            enabled.IsCheckedChanged += (_, _) => EditSkill(index, s => s with { Enabled = enabled.IsChecked == true });
 
-            row.Enabled.IsCheckedChanged += (_, _) =>
-            {
-                var current = _options.Skills[index];
-                _options.Skills[index] = current with { Enabled = row.Enabled.IsChecked == true };
-                MarkDirty();
-            };
+            var name = RowNameBox(skill.Name);
+            name.TextChanged += (_, _) => EditSkill(index, s => s with { Name = string.IsNullOrWhiteSpace(name.Text) ? s.Name : name.Text.Trim() });
 
-            row.Seconds = Seconds(skill.EffectiveCooldown);
-            row.Seconds.ValueChanged += (_, e) =>
+            var key = KeyBox();
+            key.Name = "skillKey";
+            key.Text = skill.Key;
+            key.Watermark = "touche";
+            Bind(key, v => EditSkill(index, s => s with { Key = v }));
+
+            var seconds = Seconds(skill.EffectiveCooldown);
+            seconds.ValueChanged += (_, e) =>
             {
-                if (e.NewValue is not { } value)
+                if (e.NewValue is { } value)
                 {
-                    return;
+                    EditSkill(index, s => s with { Cooldown = TimeSpan.FromSeconds((double)value) });
                 }
-
-                var current = _options.Skills[index];
-                _options.Skills[index] = current with { Cooldown = TimeSpan.FromSeconds((double)value) };
-                MarkDirty();
             };
 
-            row.Reset = ResetButton($"Remettre {skill.Name} à zéro : le sort redevient disponible tout de suite.");
-            row.Reset.Click += (_, _) =>
+            var reset = ResetButton($"Remettre {skill.Name} à zéro : le sort redevient disponible tout de suite.");
+            reset.Click += (_, _) =>
             {
                 _rotation.Reset(_options.Skills[index].CastId);
+                Refresh();
+            };
+
+            var remove = RemoveButton($"Retirer {skill.Name} de la rotation.");
+            remove.Click += (_, _) =>
+            {
+                _options.Skills = _options.Skills.Where((_, at) => at != index).ToList();
+                MarkDirty();
+                BuildSkillRows();
                 Refresh();
             };
 
@@ -848,53 +888,63 @@ public sealed class MainWindow : Window
             row.Dot = Dot();
 
             _skillRows.Add(row);
-            _skills.Children.Add(BuildRow(row.Enabled, skill.Key, row.Seconds, row.Reset, row.Status, row.Dot));
+            _skills.Children.Add(BuildRow(enabled, name, key, seconds, reset, row.Status, row.Dot, remove));
+        }
+
+        if (_options.Skills.Count == 0)
+        {
+            _skills.Children.Add(Note("Aucun sort : le bot ne fera que l'attaque de base. Clique sur « Ajouter un sort ».", Cooling));
         }
     }
 
     private void BuildBuffRows()
     {
+        _buffRows.Clear();
+        _buffPanel.Children.Clear();
+        _buffPanel.Children.Add(RowHeader("Durée (s)"));
+
         for (var i = 0; i < _options.Buffs.Count; i++)
         {
             var index = i;
             var buff = _options.Buffs[index];
             var row = new BuffRow { Index = index };
 
-            row.Enabled = new CheckBox
-            {
-                IsChecked = buff.Enabled,
-                Content = buff.Name,
-                Foreground = Ink,
-                FontSize = 13,
-                VerticalAlignment = VerticalAlignment.Center
-            };
+            var enabled = RowCheckBox(buff.Enabled);
+            enabled.IsCheckedChanged += (_, _) => EditBuff(index, b => b with { Enabled = enabled.IsChecked == true });
 
-            row.Enabled.IsCheckedChanged += (_, _) =>
-            {
-                var current = _options.Buffs[index];
-                _options.Buffs[index] = current with { Enabled = row.Enabled.IsChecked == true };
-                MarkDirty();
-            };
+            var name = RowNameBox(buff.Name);
+            name.TextChanged += (_, _) => EditBuff(index, b => b with { Name = string.IsNullOrWhiteSpace(name.Text) ? b.Name : name.Text.Trim() });
+
+            var key = KeyBox();
+            key.Name = "buffKey";
+            key.Text = buff.Key;
+            key.Watermark = "touche";
+            Bind(key, v => EditBuff(index, b => b with { Key = v }));
 
             // For a buff the number that matters is how long it lasts: that is what decides when it
             // has to go back up, and the server corrects it whenever the card id is known.
-            row.Seconds = Seconds(buff.EffectiveDuration);
-            row.Seconds.ValueChanged += (_, e) =>
+            var seconds = Seconds(buff.EffectiveDuration);
+            seconds.ValueChanged += (_, e) =>
             {
-                if (e.NewValue is not { } value)
+                if (e.NewValue is { } value)
                 {
-                    return;
+                    EditBuff(index, b => b with { Duration = TimeSpan.FromSeconds((double)value) });
                 }
-
-                var current = _options.Buffs[index];
-                _options.Buffs[index] = current with { Duration = TimeSpan.FromSeconds((double)value) };
-                MarkDirty();
             };
 
-            row.Reset = ResetButton($"Considérer {buff.Name} comme tombé : il sera relancé au prochain tour.");
-            row.Reset.Click += (_, _) =>
+            var reset = ResetButton($"Considérer {buff.Name} comme tombé : il sera relancé au prochain tour.");
+            reset.Click += (_, _) =>
             {
                 _buffs.Reset(_options.Buffs[index]);
+                Refresh();
+            };
+
+            var remove = RemoveButton($"Ne plus entretenir {buff.Name}.");
+            remove.Click += (_, _) =>
+            {
+                _options.Buffs = _options.Buffs.Where((_, at) => at != index).ToList();
+                MarkDirty();
+                BuildBuffRows();
                 Refresh();
             };
 
@@ -902,14 +952,90 @@ public sealed class MainWindow : Window
             row.Dot = Dot();
 
             _buffRows.Add(row);
-            _buffPanel.Children.Add(BuildRow(row.Enabled, buff.Key, row.Seconds, row.Reset, row.Status, row.Dot));
+            _buffPanel.Children.Add(BuildRow(enabled, name, key, seconds, reset, row.Status, row.Dot, remove));
         }
+
+        if (_options.Buffs.Count == 0)
+        {
+            _buffPanel.Children.Add(Note("Aucun buff entretenu. Clique sur « Ajouter un buff » pour chacun de ceux de ta barre.", Cooling));
+        }
+    }
+
+    /// <summary>
+    /// Changes one skill by replacing the whole list.
+    /// </summary>
+    /// <remarks>
+    /// The engine walks the list on its own thread. Writing into it, even by index, would make the
+    /// walk in progress throw; a new list leaves that walk on the old one and the next tick on this.
+    /// </remarks>
+    private void EditSkill(int index, Func<SkillDefinition, SkillDefinition> change)
+    {
+        var skills = _options.Skills.ToList();
+        if (index >= skills.Count)
+        {
+            return;
+        }
+
+        skills[index] = change(skills[index]);
+        _options.Skills = skills;
+        MarkDirty();
+    }
+
+    private void EditBuff(int index, Func<BuffDefinition, BuffDefinition> change)
+    {
+        var buffs = _options.Buffs.ToList();
+        if (index >= buffs.Count)
+        {
+            return;
+        }
+
+        buffs[index] = change(buffs[index]);
+        _options.Buffs = buffs;
+        MarkDirty();
+    }
+
+    private void AddSkill()
+    {
+        // The cast id only has to be unique here: driving the client by keyboard, it is the key
+        // that casts, and the id is what the server's confirmation is matched against.
+        var castId = (short)(_options.Skills.Count == 0 ? 1 : _options.Skills.Max(s => s.CastId) + 1);
+
+        _options.Skills = _options.Skills
+            .Append(new SkillDefinition(castId, $"Sort {_options.Skills.Count + 1}", 0, TimeSpan.FromSeconds(5)))
+            .ToList();
+
+        MarkDirty();
+        BuildSkillRows();
+        Refresh();
+    }
+
+    private void AddBuff()
+    {
+        _options.Buffs = _options.Buffs
+            .Append(new BuffDefinition($"Buff {_options.Buffs.Count + 1}", TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(30)))
+            .ToList();
+
+        MarkDirty();
+        BuildBuffRows();
+        Refresh();
     }
 
     private Control BuildSkillSection()
     {
         var panel = new StackPanel { Spacing = 10 };
+
+        panel.Children.Add(Note
+        (
+            "Dans l'ordre de priorité : le premier sort prêt part en premier. La touche est celle du "
+            + "sort dans ta barre (0 à 9, ou une lettre) ; la recharge, en secondes."
+        ));
+
         panel.Children.Add(_skills);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        actions.Children.Add(_addSkill);
+        actions.Children.Add(_resetSkills);
+        panel.Children.Add(actions);
 
         // The countdown shown here is the bot's own, started from whatever the cooldown field said
         // at the time of the cast. Correcting that field cannot shorten a wait already under way,
@@ -921,51 +1047,43 @@ public sealed class MainWindow : Window
             + "un temps de recharge : le décompte en cours a démarré avec l'ancienne valeur."
         ));
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-        actions.Children.Add(_resetSkills);
-        panel.Children.Add(actions);
-
         return panel;
     }
 
     private Control BuildBuffSection()
     {
         var panel = new StackPanel { Spacing = 10 };
+
+        panel.Children.Add(Note
+        (
+            "Relancés tout seuls avant de tomber. La touche est celle du buff dans ta barre ; la "
+            + "durée, combien de secondes il tient."
+        ));
+
         panel.Children.Add(_buffPanel);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        actions.Children.Add(_addBuff);
         actions.Children.Add(_resetBuffs);
         panel.Children.Add(actions);
 
         return panel;
     }
 
-    private static Border BuildRow(CheckBox enabled, string? key, NumericUpDown seconds, Button reset, TextBlock status, Border dot)
+    private const string RowColumns = "40,*,92,150,44,96,18,44";
+
+    private static Border BuildRow(CheckBox enabled, TextBox name, TextBox key, NumericUpDown seconds, Button reset, TextBlock status, Border dot, Button remove)
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,60,150,44,96,18") };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(RowColumns) };
 
-        var keyLabel = new TextBlock
+        key.Margin = new Thickness(0, 0, 14, 0);
+
+        Control[] cells = { enabled, name, key, seconds, reset, status, dot, remove };
+        for (var column = 0; column < cells.Length; column++)
         {
-            Text = string.IsNullOrWhiteSpace(key) ? "-" : "touche " + key,
-            Foreground = string.IsNullOrWhiteSpace(key) ? Blocked : Ink,
-            FontSize = 13,
-            FontFamily = new FontFamily("Consolas, Menlo, DejaVu Sans Mono, monospace"),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        Grid.SetColumn(enabled, 0);
-        Grid.SetColumn(keyLabel, 1);
-        Grid.SetColumn(seconds, 2);
-        Grid.SetColumn(reset, 3);
-        Grid.SetColumn(status, 4);
-        Grid.SetColumn(dot, 5);
-        grid.Children.Add(enabled);
-        grid.Children.Add(keyLabel);
-        grid.Children.Add(seconds);
-        grid.Children.Add(reset);
-        grid.Children.Add(status);
-        grid.Children.Add(dot);
+            Grid.SetColumn(cells[column], column);
+            grid.Children.Add(cells[column]);
+        }
 
         return new Border
         {
@@ -975,6 +1093,55 @@ public sealed class MainWindow : Window
             Background = new SolidColorBrush(Color.Parse("#26282C"))
         };
     }
+
+    private static Control RowHeader(string seconds)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(RowColumns), Margin = new Thickness(10, 0) };
+
+        (string Text, int Column)[] labels = { ("actif", 0), ("nom", 1), ("touche", 2), (seconds, 3), ("état", 5) };
+        foreach (var (text, column) in labels)
+        {
+            var label = new TextBlock { Text = text, Foreground = Muted, FontSize = 10.5 };
+            Grid.SetColumn(label, column);
+            grid.Children.Add(label);
+        }
+
+        return grid;
+    }
+
+    private static CheckBox RowCheckBox(bool isChecked)
+        => new()
+        {
+            IsChecked = isChecked,
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            [ToolTip.TipProperty] = "décoché : le bot l'ignore"
+        };
+
+    private static TextBox RowNameBox(string text)
+        => new()
+        {
+            Text = text,
+            Height = 34,
+            FontSize = 13,
+            Margin = new Thickness(0, 0, 12, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+
+    private static Button RemoveButton(string tip)
+        => new()
+        {
+            Content = "×",
+            Width = 32,
+            Height = 32,
+            FontSize = 17,
+            Padding = new Thickness(0),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            [ToolTip.TipProperty] = tip
+        };
 
     private static NumericUpDown Seconds(TimeSpan value)
         => new()
@@ -1079,12 +1246,6 @@ public sealed class MainWindow : Window
     {
         public int Index { get; init; }
 
-        public CheckBox Enabled { get; set; } = null!;
-
-        public NumericUpDown Seconds { get; set; } = null!;
-
-        public Button Reset { get; set; } = null!;
-
         public TextBlock Status { get; set; } = null!;
 
         public Border Dot { get; set; } = null!;
@@ -1093,12 +1254,6 @@ public sealed class MainWindow : Window
     private sealed class BuffRow
     {
         public int Index { get; init; }
-
-        public CheckBox Enabled { get; set; } = null!;
-
-        public NumericUpDown Seconds { get; set; } = null!;
-
-        public Button Reset { get; set; } = null!;
 
         public TextBlock Status { get; set; } = null!;
 

@@ -93,6 +93,23 @@ public sealed class TargetHpResponder :
     {
         var packet = packetArgs.Packet;
 
+        // Our own character, shown because it was clicked. stat only arrives when the vitals
+        // change, so a bot started at full health has nothing to show until it is hit; this is the
+        // other way the server says what they are.
+        if (packet.EntityType == EntityType.Player && packet.EntityId == _state.OwnCharacterId)
+        {
+            _state.UpdateVitals
+            (
+                packet.Hp,
+                Maximum(packet.Hp, packet.HpPercentage, packet.MaxHp),
+                packet.Mp,
+                Maximum(packet.Mp, packet.MpPercentage, packet.MaxMp)
+            );
+
+            _logger.LogDebug("st -> own vitals hp {Hp} ({HpPercentage}%) mp {Mp} ({MpPercentage}%)", packet.Hp, packet.HpPercentage, packet.Mp, packet.MpPercentage);
+            return Task.FromResult(Result.FromSuccess());
+        }
+
         if (packet.HpPercentage == 0 || packet.Hp == 0)
         {
             ReportKill(packet.EntityId, "st reported zero HP");
@@ -137,6 +154,12 @@ public sealed class TargetHpResponder :
         _state.UpdateTargetVitals(packet.EntityId, packet.Hp, percentage);
         return Task.FromResult(Result.FromSuccess());
     }
+
+    /// <summary>
+    /// The maximum st reports, or the one its percentage implies when the server leaves it out.
+    /// </summary>
+    private static long Maximum(long current, int percentage, long reported)
+        => reported > 0 ? reported : percentage > 0 ? current * 100 / percentage : 0;
 
     private void ReportKill(long entityId, string reason)
     {

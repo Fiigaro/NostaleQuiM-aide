@@ -38,6 +38,9 @@
 
   <ItemGroup>
     <Content Include="../appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../appsettings.json')" />
+    <!-- Also carried inside the program: an .exe started without its settings file beside it
+         still plays with these, rather than with keyless skills and no buffs at all. -->
+    <EmbeddedResource Include="../appsettings.json" LogicalName="appsettings.default.json" Condition="Exists('../appsettings.json')" />
   </ItemGroup>
 
 </Project>
