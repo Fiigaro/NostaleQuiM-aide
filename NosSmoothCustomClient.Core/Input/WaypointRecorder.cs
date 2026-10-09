@@ -470,6 +470,39 @@ public sealed class WaypointRecorder : BackgroundService
     }
 
     /// <summary>
+    /// Reads where the mouse is pointing inside the game window, without recording anything.
+    /// </summary>
+    /// <param name="x">X inside the game window.</param>
+    /// <param name="y">Y inside the game window.</param>
+    /// <param name="error">Why it could not be read, when it could not.</param>
+    /// <returns>True when the mouse was inside the game window.</returns>
+    /// <remarks>
+    /// For whoever needs a point and keeps it themselves - the raid loop's minimap click, for one.
+    /// Measured against the same window clicks are sent to, so a point read here lands where it was
+    /// pointed at when it is played back.
+    /// </remarks>
+    public bool TryReadCursorInGame(out int x, out int y, out string error)
+    {
+        x = 0;
+        y = 0;
+
+        if (_window == IntPtr.Zero)
+        {
+            error = UnavailableReason ?? "fenêtre de jeu introuvable";
+            return false;
+        }
+
+        if (!TryReadCursor(_window, out x, out y))
+        {
+            error = "la souris n'était pas dans la fenêtre du jeu";
+            return false;
+        }
+
+        error = string.Empty;
+        return true;
+    }
+
+    /// <summary>
     /// Captures an interface click where the mouse is pointing, on demand.
     /// </summary>
     /// <param name="doubleClick">Whether the point needs two clicks.</param>

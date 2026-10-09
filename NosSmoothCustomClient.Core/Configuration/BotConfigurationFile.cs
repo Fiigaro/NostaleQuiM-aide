@@ -92,6 +92,9 @@ public sealed class BotConfigurationFile
     /// <summary>Gets or sets the key that starts and stops recording a run.</summary>
     public string? RecordRunKey { get; set; }
 
+    /// <summary>Gets or sets the simple raid loop.</summary>
+    public RaidMacroOptions? Raid { get; set; }
+
     /// <summary>Gets or sets the attack rotation, in priority order.</summary>
     public List<SkillEntry>? Skills { get; set; }
 
@@ -349,6 +352,12 @@ public sealed class BotConfigurationFile
                 .ToList();
 
             applied.Add("SendMacros");
+        }
+
+        if (file.Raid is { } raid)
+        {
+            options.Raid = raid;
+            applied.Add("Raid");
         }
 
         if (HotKey.TryParse(file.RecordRunKey, out var recordKey))

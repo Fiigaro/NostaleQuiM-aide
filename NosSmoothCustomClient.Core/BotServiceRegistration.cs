@@ -168,6 +168,10 @@ public static class BotServiceRegistration
                 services.AddSingleton<RunRecorder>();
                 services.AddHostedService(sp => sp.GetRequiredService<RunRecorder>());
 
+                // The blind raid loop. Only here, because it only means anything with a real client
+                // to press keys into.
+                services.AddSingleton<RaidMacro>();
+
                 if (play && OperatingSystem.IsWindows())
                 {
                     services.AddSingleton(new StartLive(true));

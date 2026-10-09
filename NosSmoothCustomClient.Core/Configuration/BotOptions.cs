@@ -221,6 +221,9 @@ public sealed class BotOptions
     /// </remarks>
     public string RecordRunKey { get; set; } = "Pause";
 
+    /// <summary>Gets or sets the simple raid loop: a key, Enter, a click, then attack, and again.</summary>
+    public RaidMacroOptions Raid { get; set; } = new();
+
     /// <summary>
     /// Gets or sets a value indicating whether the launch sequence plays when the bot is started.
     /// </summary>

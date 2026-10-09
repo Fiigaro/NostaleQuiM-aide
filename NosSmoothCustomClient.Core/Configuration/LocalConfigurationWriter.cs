@@ -79,6 +79,7 @@ public static class LocalConfigurationWriter
                     }),
                     options.AutoLaunchInstance,
                     options.RecordRunKey,
+                    options.Raid,
 
                     // The headers worth watching on a given server are found once, packet by
                     // packet; losing them at the next launch means finding them again.

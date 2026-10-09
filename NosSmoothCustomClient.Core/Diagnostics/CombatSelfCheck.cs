@@ -73,7 +73,10 @@ public static class CombatSelfCheck
             TheRecordingKeyIsFreeOfTheOthers(),
             ADeadHotKeyIsToldApartFromABrokenOne(),
             await OurOwnWalkRevealsWhoWeAreAsync().ConfigureAwait(false),
-            await ARouteWithoutCoordinatesStillWalksAsync().ConfigureAwait(false)
+            await ARouteWithoutCoordinatesStillWalksAsync().ConfigureAwait(false),
+            await TheRaidLoopPlaysInOrderAsync().ConfigureAwait(false),
+            await TheRaidLoopStartsOverAndStopsAsync().ConfigureAwait(false),
+            TheRaidLoopSaysWhatIsMissing()
         };
 
         var failed = 0;
@@ -836,6 +839,90 @@ public static class CombatSelfCheck
         return ("une route sans coordonnées se marche quand même", setOff && wentOn);
     }
 
+    private static (RaidMacro Macro, RecordingInput Input, BotOptions Options, BotController Controller) BuildRaid()
+    {
+        var options = new BotOptions();
+        options.Raid = new RaidMacroOptions
+        {
+            Key = "R",
+            AfterKeyMs = 0,
+            AfterEnterMs = 0,
+            ClickX = 940,
+            ClickY = 120,
+            AfterClickMs = 0,
+            AttackSeconds = 0.08,
+            AttackKey = "space",
+            AttackIntervalMs = 10
+        };
+
+        var input = new RecordingInput();
+        var controller = new BotController();
+        var macro = new RaidMacro(input, options, controller, NullLogger<RaidMacro>.Instance);
+
+        return (macro, input, options, controller);
+    }
+
+    private static async Task<(string, bool)> TheRaidLoopPlaysInOrderAsync()
+    {
+        var (macro, input, _, _) = BuildRaid();
+
+        await macro.PlayCycleAsync(CancellationToken.None).ConfigureAwait(false);
+
+        // The key, Enter, the click, in that order - and only then the attacks, several of them,
+        // for the configured time.
+        var opening = input.Calls.Take(3).SequenceEqual(new[] { "key:R", "key:entrée", "click:940,120" });
+        var attacks = input.Calls.Skip(3).ToList();
+        var attacked = attacks.Count >= 2 && attacks.All(c => c == "key:espace");
+
+        return ("le raid joue touche, Entrée, clic, puis attaque", opening && attacked && macro.Cycles == 1);
+    }
+
+    private static async Task<(string, bool)> TheRaidLoopStartsOverAndStopsAsync()
+    {
+        var (macro, input, _, controller) = BuildRaid();
+        controller.Start();
+
+        var started = macro.Start(out _);
+
+        // Two things pressing keys into one client undo each other, so the main loop steps aside.
+        var mainLoopPaused = !controller.IsRunning;
+
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (macro.Cycles < 2 && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(20).ConfigureAwait(false);
+        }
+
+        // Back to the start: the opening is played again, not only the attacks.
+        var startedOver = macro.Cycles >= 2 && input.Calls.Count(c => c == "key:R") >= 2;
+
+        macro.Stop();
+        await Task.Delay(150).ConfigureAwait(false);
+
+        // And it really stops: nothing more goes out once it has said so.
+        var count = input.Calls.Count;
+        await Task.Delay(150).ConfigureAwait(false);
+        var quiet = input.Calls.Count == count && !macro.Running;
+
+        return ("le raid recommence au début et s'arrête net", started && mainLoopPaused && startedOver && quiet);
+    }
+
+    private static (string, bool) TheRaidLoopSaysWhatIsMissing()
+    {
+        var (macro, _, options, _) = BuildRaid();
+
+        // No point to click: refused, and the reason says what to do - a loop that started and
+        // clicked (0,0) on every cycle would be worse than one that does not start.
+        options.Raid.ClickX = null;
+        var refused = !macro.Start(out var why) && why.Contains("minimap") && !macro.Running;
+
+        options.Raid.ClickX = 940;
+        options.Raid.Key = "touche inventée";
+        var badKey = !macro.Start(out var why2) && why2.Contains("touche");
+
+        return ("le raid dit ce qui lui manque", refused && badKey);
+    }
+
     private static (string, bool) RouteIsStampedWhereItsPointsWereTaken()
     {
         var options = new BotOptions { Waypoints = new List<Waypoint>() };
@@ -1161,6 +1248,50 @@ public static class CombatSelfCheck
         );
 
         return (loop, state, rotation, actuator, options);
+    }
+
+    /// <summary>
+    /// A keyboard and mouse that send nothing and remember what they were asked to do.
+    /// </summary>
+    private sealed class RecordingInput : IGameInput
+    {
+        private readonly object _sync = new();
+        private readonly List<string> _calls = new();
+
+        public List<string> Calls
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _calls.ToList();
+                }
+            }
+        }
+
+        public string Description => "recording input";
+
+        public bool TryAttach(out string error)
+        {
+            error = string.Empty;
+            return true;
+        }
+
+        public bool PressKey(GameKey key) => Add("key:" + key.Label);
+
+        public bool ClickAt(int x, int y) => Add($"click:{x},{y}");
+
+        public bool DoubleClickAt(int x, int y) => Add($"double:{x},{y}");
+
+        private bool Add(string call)
+        {
+            lock (_sync)
+            {
+                _calls.Add(call);
+            }
+
+            return true;
+        }
     }
 
     /// <summary>

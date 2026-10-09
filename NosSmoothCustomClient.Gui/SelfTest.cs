@@ -154,6 +154,39 @@ public static class SelfTest
             rewardPlaysOnDemand = silentBefore && !string.IsNullOrWhiteSpace(rewardStatus.Text);
         }
 
+        // Le raid : chaque réglage doit atteindre les options, et Démarrer doit répondre.
+        var raidEdits = false;
+        var raidSeconds = numbers.FirstOrDefault(n => n.Name == "raidAttackSeconds");
+        var raidKeyBox = visuals.OfType<TextBox>().FirstOrDefault(b => b.Name == "raidKey");
+
+        if (raidSeconds is not null && raidKeyBox is not null)
+        {
+            var beforeSeconds = options.Raid.AttackSeconds;
+            var beforeKey = options.Raid.Key;
+
+            raidSeconds.Value = (decimal)beforeSeconds + 7;
+            raidKeyBox.Text = "R";
+            Dispatcher.UIThread.RunJobs();
+
+            raidEdits = Math.Abs(options.Raid.AttackSeconds - (beforeSeconds + 7)) < 0.001
+                        && options.Raid.Key == "R";
+
+            raidSeconds.Value = (decimal)beforeSeconds;
+            raidKeyBox.Text = beforeKey ?? string.Empty;
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        var raidAnswers = false;
+        var raidStatus = visuals.OfType<TextBlock>().FirstOrDefault(s => s.Name == "raidStatus");
+
+        if (raidStatus is not null
+            && visuals.OfType<Button>().FirstOrDefault(b => b.Name == "raidStart") is { } raidStart)
+        {
+            var silentBefore = string.IsNullOrWhiteSpace(raidStatus.Text);
+            Click(raidStart);
+            raidAnswers = silentBefore && !string.IsNullOrWhiteSpace(raidStatus.Text);
+        }
+
         // Les captures à la souris : un bouton pour la route, deux pour le panneau de récompense.
         var captures = visuals.OfType<Button>()
             .Where(b => b.Name is "captureWaypoint" or "captureDraw" or "captureConfirm")
@@ -430,6 +463,12 @@ public static class SelfTest
             // lire au moment où on le presse : il compte, on pointe, il lit. Sans ça, la route ne
             // s'enregistre qu'avec une touche - et quatre touches ont déjà échoué sur cette machine.
             ("capture sans touche possible", captureButtons),
+
+            // Le raid en boucle : ses réglages atteignent les options en direct, ils survivent au
+            // fichier, et « Démarrer » répond toujours - sans enregistreur ni macro, il dit pourquoi.
+            ("onglet raid reglable", raidEdits),
+            ("reglages du raid relus", RaidReadsBack()),
+            ("demarrer le raid repond toujours", raidAnswers),
             ("le bouton de lancement repond toujours", launchAnswers),
 
             // Effacer doit vider la route que le bot utilise vraiment, pas seulement un tampon
@@ -483,6 +522,45 @@ public static class SelfTest
             .Build();
 
         return BotConfigurationFile.Apply(configuration).Options;
+    }
+
+    private static bool RaidReadsBack()
+    {
+        var options = new BotOptions
+        {
+            Raid = new RaidMacroOptions
+            {
+                Key = "R",
+                AfterKeyMs = 1500,
+                AfterEnterMs = 6000,
+                ClickX = 940,
+                ClickY = 120,
+                AfterClickMs = 7000,
+                AttackSeconds = 90,
+                AttackKey = "1",
+                AttackIntervalMs = 350
+            }
+        };
+
+        var (path, _) = LocalConfigurationWriter.Save(options, Path.GetTempPath());
+        if (path is null)
+        {
+            return false;
+        }
+
+        // Written is not read: every field has to come back, or the raid recorded once is a raid
+        // reconfigured at every launch.
+        var raid = ReadBack(path).Raid;
+
+        return raid.Key == "R"
+               && raid.AfterKeyMs == 1500
+               && raid.AfterEnterMs == 6000
+               && raid.ClickX == 940
+               && raid.ClickY == 120
+               && raid.AfterClickMs == 7000
+               && Math.Abs(raid.AttackSeconds - 90) < 0.001
+               && raid.AttackKey == "1"
+               && raid.AttackIntervalMs == 350;
     }
 
     private static bool LaunchSequenceReadsBack()

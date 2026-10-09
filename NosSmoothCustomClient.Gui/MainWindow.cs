@@ -80,6 +80,20 @@ public sealed class MainWindow : Window
     private readonly WaypointRecorder? _recorder;
     private readonly OrchestrationBackgroundService? _loop;
     private readonly RunRecorder? _runs;
+    private readonly RaidMacro? _raid;
+
+    private readonly TextBox _raidKey = new() { Name = "raidKey", Width = 90, Height = 32 };
+    private readonly TextBox _raidAttackKey = new() { Name = "raidAttackKey", Width = 90, Height = 32 };
+    private readonly NumericUpDown _raidAfterKey = Counter("raidAfterKey", 0, 60000, 1000, 250);
+    private readonly NumericUpDown _raidAfterEnter = Counter("raidAfterEnter", 0, 120000, 4000, 500);
+    private readonly NumericUpDown _raidAfterClick = Counter("raidAfterClick", 0, 120000, 5000, 500);
+    private readonly NumericUpDown _raidAttackSeconds = Counter("raidAttackSeconds", 1, 3600, 60, 5);
+    private readonly NumericUpDown _raidAttackInterval = Counter("raidAttackInterval", 50, 5000, 400, 50);
+    private readonly TextBlock _raidPoint = new() { Name = "raidPoint", FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Button _raidCapture = new() { Name = "raidCapture", Content = "Capturer le point (5 s)", Width = 210, Height = 30 };
+    private readonly Button _raidStart = new() { Name = "raidStart", Content = "Démarrer le raid", Width = 190, Height = 34 };
+    private readonly Button _raidStop = new() { Name = "raidStop", Content = "Arrêter le raid", Width = 170, Height = 34, IsEnabled = false };
+    private readonly TextBlock _raidStatus = new() { Name = "raidStatus", FontSize = 13, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap };
 
     private readonly Button _live = new() { Width = 150, Height = 32 };
     private readonly Button _arm = new() { Width = 190, Height = 28 };
@@ -333,9 +347,11 @@ public sealed class MainWindow : Window
         SwitchableGameInput? input = null,
         WaypointRecorder? recorder = null,
         OrchestrationBackgroundService? loop = null,
-        RunRecorder? runs = null
+        RunRecorder? runs = null,
+        RaidMacro? raid = null
     )
     {
+        _raid = raid;
         _input = input;
         _recorder = recorder;
         _loop = loop;
@@ -425,6 +441,8 @@ public sealed class MainWindow : Window
 
         _adoptMap.Click += (_, _) => AdoptCurrentMap();
         _clearReward.Click += (_, _) => { _recorder?.ClearUiPoints(); RefreshRoute(); };
+
+        WireRaid();
         _playReward.Click += (_, _) => PlayRewardNow();
         _buildLaunch.Click += (_, _) => BuildLaunchFromRun();
         _launchNow.Click += (_, _) => LaunchNow();
@@ -607,6 +625,7 @@ public sealed class MainWindow : Window
         RefreshBuffs();
         RefreshRoute();
         RefreshLaunch();
+        RefreshRaid();
         RefreshReadiness();
         RefreshRun();
         RefreshLog();
@@ -816,6 +835,8 @@ public sealed class MainWindow : Window
         }));
 
         tabs.Items.Add(Tab("Espace-temps", Section("Salle d'instance", BuildInstanceSection())));
+
+        tabs.Items.Add(Tab("Raid", Section("Raid en boucle", BuildRaidSection())));
 
         tabs.Items.Add(Tab("Paquets", new StackPanel
         {
@@ -1889,6 +1910,164 @@ public sealed class MainWindow : Window
         status.Foreground = ok ? Ready : Blocked;
 
         RefreshRoute();
+    }
+
+    private void WireRaid()
+    {
+        var raid = _options.Raid;
+
+        _raidKey.Text = raid.Key ?? string.Empty;
+        Bind(_raidKey, v => raid.Key = v);
+
+        _raidAttackKey.Text = raid.AttackKey;
+        Bind(_raidAttackKey, v => raid.AttackKey = v ?? "space");
+
+        BindNumber(_raidAfterKey, raid.AfterKeyMs, v => raid.AfterKeyMs = v);
+        BindNumber(_raidAfterEnter, raid.AfterEnterMs, v => raid.AfterEnterMs = v);
+        BindNumber(_raidAfterClick, raid.AfterClickMs, v => raid.AfterClickMs = v);
+        BindNumber(_raidAttackSeconds, (int)Math.Round(raid.AttackSeconds), v => raid.AttackSeconds = v);
+        BindNumber(_raidAttackInterval, raid.AttackIntervalMs, v => raid.AttackIntervalMs = v);
+
+        _raidCapture.Click += (_, _) => BeginCapture
+        (
+            _raidStatus,
+            "vise le point sur la minimap",
+            () =>
+            {
+                if (!_recorder!.TryReadCursorInGame(out var x, out var y, out var error))
+                {
+                    return (false, error);
+                }
+
+                raid.ClickX = x;
+                raid.ClickY = y;
+                MarkDirty();
+                RefreshRaid();
+
+                return (true, $"point minimap ({x},{y}) retenu — pense à enregistrer les réglages");
+            }
+        );
+
+        _raidStart.Click += (_, _) => StartRaid();
+        _raidStop.Click += (_, _) => { _raid?.Stop(); RefreshRaid(); };
+
+        if (_raid is not null)
+        {
+            _raid.Changed += () => Dispatcher.UIThread.Post(RefreshRaid);
+        }
+    }
+
+    private void BindNumber(NumericUpDown box, int value, Action<int> assign)
+    {
+        box.Value = value;
+        box.ValueChanged += (_, e) =>
+        {
+            if (e.NewValue is { } picked)
+            {
+                assign((int)picked);
+                MarkDirty();
+            }
+        };
+    }
+
+    private Control BuildRaidSection()
+    {
+        var panel = new StackPanel { Spacing = 12 };
+
+        panel.Children.Add(Note
+        (
+            "Touche → Entrée → clic sur la minimap → attaque pendant la durée choisie → et ça "
+            + "recommence. Rien n'est lu dans le jeu : c'est une macro, elle tourne tant que tu ne "
+            + "l'arrêtes pas. Le bot principal est mis en pause pendant le raid, pour que les deux "
+            + "n'appuient pas sur les touches en même temps."
+        ));
+
+        panel.Children.Add(Heading("1. Départ"));
+        panel.Children.Add(Field("Touche de départ", _raidKey, "celle qui lance le raid (lettre, chiffre, espace)"));
+        panel.Children.Add(Field("Pause après la touche (ms)", _raidAfterKey));
+        panel.Children.Add(Field("Pause après Entrée (ms)", _raidAfterEnter, "le temps du chargement"));
+
+        panel.Children.Add(Heading("2. Déplacement"));
+        var point = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        point.Children.Add(_raidPoint);
+        point.Children.Add(_raidCapture);
+        panel.Children.Add(point);
+        panel.Children.Add(Note
+        (
+            "Clique sur « Capturer le point », puis amène la souris sur l'endroit voulu de la minimap "
+            + "dans NosTale — sans cliquer. Le point est lu au bout du compte à rebours."
+        ));
+        panel.Children.Add(Field("Pause après le clic (ms)", _raidAfterClick, "le temps de marcher jusqu'au point"));
+
+        panel.Children.Add(Heading("3. Combat"));
+        panel.Children.Add(Field("Durée d'attaque (s)", _raidAttackSeconds));
+        panel.Children.Add(Field("Touche d'attaque", _raidAttackKey));
+        panel.Children.Add(Field("Une attaque toutes les (ms)", _raidAttackInterval));
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        actions.Children.Add(_raidStart);
+        actions.Children.Add(_raidStop);
+        panel.Children.Add(actions);
+        panel.Children.Add(_raidStatus);
+
+        panel.Children.Add(Note
+        (
+            "Passe en JOUE avant de démarrer. Sans ça le raid refuse de partir, plutôt que de tourner "
+            + "sans rien envoyer au jeu."
+        ));
+
+        return panel;
+    }
+
+    private void StartRaid()
+    {
+        if (_raid is null)
+        {
+            _raidStatus.Text = "disponible en mode capture (--pcap)";
+            _raidStatus.Foreground = Blocked;
+            return;
+        }
+
+        if (!_raid.Start(out var error))
+        {
+            _raidStatus.Text = error;
+            _raidStatus.Foreground = Blocked;
+            return;
+        }
+
+        RefreshRaid();
+    }
+
+    private void RefreshRaid()
+    {
+        var raid = _options.Raid;
+
+        _raidPoint.Text = raid.ClickX is { } x && raid.ClickY is { } y
+            ? $"point minimap : ({x},{y})"
+            : "aucun point minimap";
+        _raidPoint.Foreground = raid.ClickX is null ? Blocked : Ink;
+
+        if (_raid is null)
+        {
+            _raidStop.IsEnabled = false;
+            return;
+        }
+
+        _raidStart.IsEnabled = !_raid.Running;
+        _raidStop.IsEnabled = _raid.Running;
+
+        // Only the loop's own news while it runs; otherwise whatever was last said - a refusal or a
+        // capture result - stays on screen until something replaces it.
+        if (_raid.Running)
+        {
+            _raidStatus.Text = $"EN COURS — {_raid.Status}   ({_raid.Cycles} cycle(s) terminé(s))";
+            _raidStatus.Foreground = Ready;
+        }
+        else if (_raid.Status.StartsWith("arrêté après", StringComparison.Ordinal))
+        {
+            _raidStatus.Text = _raid.Status;
+            _raidStatus.Foreground = Muted;
+        }
     }
 
     private void RefreshLaunch()
