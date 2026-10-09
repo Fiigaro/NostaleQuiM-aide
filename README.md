@@ -1,100 +1,260 @@
-# Bot de farm NosTale
+# NostaleQuiM-aide — NosSmoothCustomClient
 
-Bot de farm pour serveur privé NosTale, basé sur la lecture de la mémoire vive
-et l'envoi de touches. Interface graphique pour régler les offsets sans toucher
-au code.
+Assembly d'automatisation .NET 8 bâtie sur NosSmooth : interception de paquets typée, moteur d'état
+partagé, rotation de sorts par priorité et boucle de décision à 300 ms — avec deux front-ends
+(console et fenêtre Avalonia) qui pilotent **exactement le même moteur**.
 
-**Windows uniquement** (pymem et pydirectinput utilisent l'API Win32).
+```bash
+dotnet build
 
-## Fichiers
+dotnet run --project NosSmoothCustomClient              # console, simulateur
+dotnet run --project NosSmoothCustomClient -- --verbose # + détail par tick
+dotnet run --project NosSmoothCustomClient.Gui          # fenêtre Avalonia
+dotnet run --project NosSmoothCustomClient.Gui -- --selftest  # test headless du moteur + de l'UI
 
-| Fichier | Rôle |
-|---|---|
-| `bot_gui.py` | Interface graphique : les cases de réglage + le bouton Lancer |
-| `bot_farm_nostale.py` | Moteur du bot (utilisable seul en ligne de commande) |
-| `outil_coordonnees.py` | Relève en direct position de la souris et couleur du pixel (réglages TS) |
-| `TUTO_ESPACE_TEMPS.md` | Tuto de mise en place du bot Espace-temps |
-| `build.bat` | Compile `BotFarmNostale.exe` |
-| `config_bot.json` | Tes réglages, créé au premier enregistrement |
+# lire le trafic d'un vrai client, en lecture seule (Npcap + admin requis)
+dotnet run --project NosSmoothCustomClient -- --pcap
+dotnet run --project NosSmoothCustomClient -- --pcap --pid 1234
 
-## Utilisation rapide
+# ne tracer que ce qu'on cherche, ou au contraire tout voir
+dotnet run --project NosSmoothCustomClient -- --pcap --only "u_i guri sp"
+dotnet run --project NosSmoothCustomClient -- --pcap --hide ""
 
-```bat
-pip install pymem pydirectinput
-python bot_gui.py
+dotnet run --project NosSmoothCustomClient -- --help
 ```
 
-À lancer **en administrateur**, sinon Windows refuse l'accès à la mémoire du jeu.
+## Configuration
 
-## Créer l'exécutable
+`appsettings.json`, a la racine du depot, pilote seuils, waypoints, rotation et slots de
+consommables. Modifie-le et relance : **aucune recompilation**. Les commentaires JSON sont acceptes.
 
-Double-clique sur `build.bat`. L'exécutable apparaît dans `dist\BotFarmNostale.exe`
-et demande automatiquement les droits administrateur au lancement.
+Au demarrage, la ligne `Configuration :` liste ce qui a reellement ete applique — une section mal
+nommee laisserait sinon tous les defauts en place sans rien dire.
 
-Ton antivirus peut le mettre en quarantaine : lire la mémoire d'un autre processus
-et injecter des frappes clavier, c'est la signature comportementale d'un trojan.
-Ajoute une exclusion si nécessaire.
+## Le bot au clavier
 
-## Régler les offsets
+Sur un serveur dont le trafic client -> serveur ne peut pas etre forge, le bot **joue comme un
+humain** : touches de la barre rapide et clics sur la minimap. La lecture continue de venir de la
+capture, ce qui le distingue d'une macro aveugle - il ne presse la potion que si les PV sont
+reellement bas, et ne change de spot que s'il n'y a vraiment plus rien a taper.
 
-Les offsets se trouvent avec Cheat Engine (recherche de valeur, filtrage après
-variation) ou ReClass. Deux formats acceptés dans l'interface :
+```bash
+# 1. Verifier que les touches atteignent le client en arriere-plan
+dotnet run --project NosSmoothCustomClient -- --test-input --key space
 
-- offset simple : `0x004B21C0` → lu à `base_module + offset`
-- chaîne de pointeurs : `0x004B21C0, 0x1C, 0x8`
+# 2. Enregistrer la route : sur place, viser la minimap, F9. F10 pour sauver.
+dotnet run --project NosSmoothCustomClient -- --record-waypoints
 
-Le bouton **Tester la lecture mémoire** affiche les valeurs lues à l'instant
-(position, PV/PM, PV de la cible) sans lancer le farm : compare-les à ton écran
-de jeu pour valider chaque offset.
+# 3. Observer les decisions sans rien envoyer
+dotnet run --project NosSmoothCustomClient.Gui -- --pcap
 
-Le champ **Type** définit la taille de lecture. Les coordonnées NosTale sont
-souvent des `short` (2 octets) plutôt que des `int`.
+# 4. Laisser le bot jouer (demarre en pause, P pour lancer)
+dotnet run --project NosSmoothCustomClient.Gui -- --pcap --play
+```
 
-## Logique du bot
+Les reglages vivent dans `appsettings.json`, et la fenetre permet de cocher/decocher chaque sort et
+chaque buff et d'ajuster leurs temps a chaud. Le bouton d'enregistrement ecrit
+`appsettings.local.json`, relu au lancement suivant.
 
-À chaque tour de boucle, dans cet ordre strict :
+## Lire les paquets, et en renvoyer
 
-1. **Potions** — lit PV/PM ; sous les seuils, appuie sur la touche de potion.
-   La vérification continue pendant les combats.
-2. **Ciblage** — barre Espace pour cibler le monstre le plus proche.
-3. **Combat** — si la cible a des PV, le déplacement est suspendu et le bot
-   frappe en boucle (touches jouées à tour de rôle), en relisant les PV du
-   monstre avant chaque coup.
-4. **Pas de ramassage** — l'auto-loot du serveur s'en charge ; à la mort du
-   monstre, retour immédiat au ciblage.
-5. **Déplacement** — uniquement si aucune cible : avance d'un pas vers le point
-   courant du chemin. Point validé à moins de N cases, puis point suivant.
+L'onglet **Paquets** de la fenêtre fait les deux moitiés d'un même travail : trouver la trame qui
+correspond à une action, puis la rejouer.
 
-## Espace-temps (TS) : séquence d'entrée
+### Filtrer la trace
 
-Onglet **Espace-temps** (option « Activer »). Joué une fois au lancement, avant
-la boucle de farm :
+Une session NosTale, c'est surtout des déplacements et des apparitions. La trame cherchée — une
+amélioration, un clic de PNJ, un objet utilisé — passe une fois entre deux cents lignes de fond. Deux
+listes d'en-têtes décident de ce qui s'affiche :
 
-1. perso principal : **clic souris** sur le bouton bleu Start (coordonnées écran) ;
-2. chacun des 2 alliés : passage sur sa fenêtre, **C C** puis **Entrée** ;
-3. retour sur la fenêtre du perso principal ;
-4. marche (lecture mémoire) jusqu'au **point précis** X, Y, puis **Entrée** ;
-5. la boucle de farm prend le relais pour clear la map.
+| Champ | Effet |
+|---|---|
+| **Seulement** | vide = tout ce qui n'est pas caché ; rempli, il est seul à décider |
+| **Cacher** | le bruit de fond, préréglé sur `mv in out cond eff st pairy rsfi fs char_sc` |
+| **Contenant** | filtre aussi sur les arguments, pas seulement l'en-tête |
+| **Sens** | ce que le client envoie est en `OUT`, ce qu'il reçoit en `IN` |
 
-En fin de map, l'écran de récompense est détecté par la couleur d'un pixel ; le
-principal puis chaque allié cliquent leur récompense. Voir `TUTO_ESPACE_TEMPS.md`.
+Un en-tête nommé dans **Seulement** l'emporte sur **Cacher** : c'est une demande explicite. Vide
+**Cacher** pour retrouver le flux brut.
 
-Chaque perso est une fenêtre NosTale : renseigne le titre (ou une partie) de
-chacune. « Perso principal » vide = la fenêtre au premier plan au lancement.
-Si une étape échoue (fenêtre introuvable, point non atteint dans le timeout),
-le bot s'arrête au lieu de farmer au mauvais endroit.
+Le filtrage se fait **à la lecture**, pas à la capture : tout est gardé dans un anneau de 4 000
+trames, donc élargir le filtre montre ce qui est déjà passé au lieu d'attendre la suite. L'en-tête
+est lu correctement dans les trois formes qui existent — `u_i 1 …`, `1043 walk …` (le numéro de
+séquence que le client met devant ses trames) et `#guri^710^1^1`.
 
-## Calibrage du déplacement
+Les mêmes listes existent en ligne de commande, `--only "u_i guri"` et `--hide ""`, et se gardent
+dans `appsettings.json` sous `PacketTrace`.
 
-En mode `CLICK` (défaut, standard NosTale), la case visée est projetée en pixels
-depuis **Perso à l'écran X/Y** (centre de l'écran : 960, 540 en 1920×1080) et la
-**taille d'une case** en pixels. Ce sont les deux réglages à ajuster à ta
-résolution — la lecture mémoire ne peut pas les deviner.
+### Renvoyer ce qu'on a lu
 
-Si ton client accepte les flèches directionnelles, le mode `KEYS` évite
-complètement ce calibrage.
+Certaines actions sont lentes parce que le client les met en scène, pas parce que le serveur
+l'exige : une tentative d'amélioration qui prend huit secondes à l'écran est une trame envoyée une
+fois. Fais l'action une fois à la main, mets la vue en pause, clique la ligne — elle se recopie dans
+le champ d'envoi — puis dis combien de fois et à quel rythme.
 
-## Arrêt d'urgence
+| Quoi envoyer | Par où ça part | Disponible |
+|---|---|---|
+| **Paquet vers le serveur** | `INostaleClient.SendPacketAsync` | `--attach`, `--simulate` |
+| **Paquet vers le client** | `INostaleClient.ReceivePacketAsync` | `--attach`, `--simulate` |
+| **Touche du jeu** | le clavier, comme le bot | partout où une fenêtre est liée |
+| **Clic (`x,y`)** | la souris, comme le bot | partout où une fenêtre est liée |
 
-La touche **ÉCHAP** coupe le bot instantanément, même si la fenêtre du jeu est au
-premier plan. Le bouton **Stop** fait la même chose.
+Une instruction par ligne ; `{i}` est remplacé par le numéro du passage, ce qui permet de balayer
+des slots. L'attente sépare deux envois — **le serveur garde ses propres délais**, donc envoyer plus
+vite qu'il n'accepte ne va pas plus vite et peut faire déconnecter. Un envoi s'interrompt au premier
+refus plutôt que de continuer à l'aveugle, et le bouton **Arrêter** le coupe en cours. Les envois se
+gardent sous un nom et sont écrits avec les autres réglages.
+
+### Ce que la capture ne peut pas faire
+
+**En `--pcap`, aucun paquet ne peut être envoyé.** Ce n'est pas un réglage : `NosSmooth.Pcap` laisse
+`SendPacketAsync` et `ReceivePacketAsync` non implémentées, parce qu'écrire dans une connexion TCP
+qu'on ne fait qu'écouter demanderait d'en usurper les numéros de séquence, ce qui casserait le flux
+du vrai client. La fenêtre le dit et éteint le bouton plutôt que de laisser cliquer sur une erreur.
+
+En capture, ce qui se répète est donc une **touche** ou un **clic** — les mêmes chemins que le bot
+utilise déjà. Pour l'amélioration d'une SP, cela veut dire relever une fois les coordonnées du
+bouton, puis les rejouer : `467,460`, cinquante fois, toutes les 1 200 ms. Pour envoyer la trame
+elle-même, il faut `--attach`.
+
+## Transports
+
+| Drapeau | Ce qu'il fait | Injection | Patterns mémoire |
+|---|---|---|---|
+| *(défaut)* | Trames synthétisées en interne, aucun jeu requis | non | non |
+| `--pcap` | Lit le trafic TCP du vrai client via libpcap | non | **non** |
+| `--attach` | Se lie au processus en mémoire (Windows x86) | oui | oui |
+
+`--pcap` est la voie de calibration : il contourne entièrement le scan mémoire, qui est le point de
+blocage sur un client modifié. Il **démarre toujours en lecture seule**, et pour deux raisons
+différentes qu'il vaut mieux ne pas confondre. La boucle démarre en pause, et `P` la relance : c'est
+ce qui décide si les touches partent. L'envoi de paquets, lui, n'est pas une question de pause —
+`NosSmooth.Pcap` ne l'implémente pas du tout, et aucun réglage ne le rend possible.
+
+Prérequis : Npcap sur Windows, et un processus élevé.
+
+Publication en `.exe` autonome (aucune installation requise sur la machine cible) :
+
+```bash
+dotnet publish NosSmoothCustomClient.Gui -c Release -r win-x86 --self-contained true -p:PublishSingleFile=true
+```
+
+## Structure
+
+| Projet | Rôle |
+|---|---|
+| `NosSmoothCustomClient.Core` | Tout le moteur : paquets, responders, état, rotation, orchestration |
+| `NosSmoothCustomClient` | Front-end console |
+| `NosSmoothCustomClient.Gui` | Tableau de bord Avalonia |
+
+Le câblage DI vit dans `Core/BotServiceRegistration.cs` et est appelé par les deux front-ends : un
+comportement vérifié dans l'un est celui que l'on obtient dans l'autre.
+
+## Corrections apportées à la spécification d'origine
+
+Quatre éléments n'existent pas tels qu'écrits. Chacun a été résolu contre les paquets publiés et les
+assemblies décompilées, pas deviné.
+
+| Spécifié | Réalité | Utilisé |
+|---|---|---|
+| `NosSmooth.Local` 5.0.0 | Cet identifiant NuGet n'existe pas | **`NosSmooth.LocalClient` 2.2.0** — dépend de `NosSmooth.Core` 5.0.0 exactement |
+| `NosSmooth.PacketSerializersGenerator` 2.2.7 | Plafonne à 1.1.1 ; **2.2.7 est `NosSmooth.PacketSerializer`** | Les deux, à leurs versions réelles |
+| `AddManagedNosSmoothCore()` | N'existe pas | **`AddManagedNostaleCore()`** |
+| `AddNosSmoothPackets()` | N'existe pas | **`AddPacketSerialization()`** |
+| `services.AddPacketTypes(asm)` | Étend `IPacketTypesRepository`, pas `IServiceCollection` | Résolu après construction du conteneur |
+
+Deux corrections de protocole :
+
+- **Le déplacement sortant est `walk`, pas `mv`.** `mv` est un paquet *serveur → client* (une entité
+  s'est déplacée). Le client envoie `walk <x> <y> <checksum> <speed>`. `mv` est consommé en entrée
+  pour suivre la position.
+- **L'attaque ciblée est `u_s`, pas `u_as`.** `u_as` est la compétence de *zone* et ne transporte
+  aucun identifiant de cible.
+
+### Le checksum de `walk`
+
+NosSmooth modélise `WalkPacket.CheckSum` mais ne le calcule jamais — son client local se déplace via
+la routine interne du jeu. La valeur dépend de la version du client. `WalkChecksumCalculator`
+concentre la formule en un seul endroit et **doit être validée contre le serveur cible**. En mode
+attaché, la question ne se pose pas : `CommandWalkStrategy` émet une `WalkCommand`.
+
+## Architecture
+
+```
+trame entrante ─► ManagedPacketHandler ─► IPacketResponder<T>  ─┐
+                  (désérialise)           (portée par paquet)   │ écrit
+                                                                ▼
+                                       ProtocolStateManager + SkillRotation  (singletons)
+                                                                │ lit
+        trame sortante ◄─ PacketDispatcher ◄─ OrchestrationBackgroundService (300 ms)
+                          (sérialise)          P1 survie ▸ P2 combat ▸ P3 navigation
+```
+
+Les responders sont déclenchés par événement (la trame qui vient d'arriver) ; la boucle est
+déclenchée par état (elle agit tant qu'une condition tient). Les deux passent par les mêmes verrous
+de cooldown, donc une potion ou une frame d'attaque n'est jamais émise deux fois pour un même
+événement.
+
+`ProtocolStateManager` est le seul état inter-paquets : les responders sont résolus par paquet, donc
+une instance ne voit jamais le paquet précédent. `Interlocked` pour les scalaires indépendants, un
+verrou court pour les paires devant rester cohérentes (X/Y, id/PV de cible), un
+`ConcurrentDictionary` pour la table d'entités, un `SemaphoreSlim` qui sérialise les cycles complets.
+
+## Rotation de sorts
+
+Priorité fixe : la boucle lance la première entrée hors cooldown et payable en PM, sinon l'attaque de
+base. Les cooldowns sont pilotés par le paquet **`sr`** du serveur, qui est autoritaire et insensible
+à la dérive ; un timer local tourne en parallèle comme filet de sécurité, de sorte que si `sr`
+n'arrive jamais ou numérote ses sorts autrement que les cast ids, la rotation dégrade proprement en
+ordonnanceur par cooldown au lieu de se désynchroniser.
+
+Configurable dans `BotOptions.Skills` — les cast ids, coûts en PM et cooldowns par défaut sont des
+**placeholders** à remplacer par ceux de la barre du personnage. Le paquet `ski` est journalisé au
+démarrage pour permettre cette vérification.
+
+## Écart délibéré
+
+L'étape 5 du brief demande d'arrêter tout mouvement dès qu'une cible est verrouillée. Pris au pied de
+la lettre, cela bloque la boucle sur tout monstre apparaissant hors de portée : elle ne s'approche
+jamais et ne touche jamais. La boucle s'approche donc au-delà de `AttackRange`, puis se fige une fois
+à portée. `ApproachTargetOutOfRange = false` rétablit la lecture littérale.
+
+Aucun ramassage au sol, conformément au brief — auto-loot serveur supposé actif.
+
+## Mode simulé
+
+`--attach` exige Windows x86 et un processus NosTale vivant. Pour que le pipeline reste testable
+partout, le transport par défaut est `SimulatedNostaleClient`, qui construit chaque trame entrante en
+**sérialisant un vrai record de paquet** via le même `IPacketSerializer` que le chemin de production,
+puis la réinjecte sous forme de chaîne. Une exécution est donc un véritable test d'aller-retour des
+convertisseurs générés, du dépôt de types, de la distribution vers les responders et de la boucle —
+ce n'est pas un mock.
+
+Il scénarise apparition → combat → mort → patrouille → réapparition, consomme des PM à chaque sort,
+renvoie les `sr` après cooldown et draine les PV pour que la priorité survie se déclenche d'elle-même.
+
+`--selftest` (GUI) démarre le moteur, le laisse tourner, puis construit la fenêtre sous la plateforme
+headless d'Avalonia et vérifie que l'UI reflète l'état réellement produit — utile en CI, et
+indispensable pour valider une fenêtre écrite sur une machine sans écran.
+
+Pour inspecter le code émis par le générateur de source, ajouter au csproj de `Core` :
+
+```xml
+<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+<CompilerGeneratedFilesOutputPath>generated</CompilerGeneratedFilesOutputPath>
+```
+
+## Limites connues
+
+- Pas de configuration externe : `BotOptions` n'est pas lié à un `appsettings.json`.
+- Pas de pathfinding : déplacement en ligne droite, aucun contournement d'obstacle.
+- Pas de gestion de la mort du personnage, du changement de carte, ni des familiers.
+- Pas de lecture d'inventaire : les slots de consommables sont fixes.
+- Les paquets `quim` / `quimtg` sont construits d'après la spécification, pas d'après des captures.
+- Le mode `--attach` n'a jamais été exécuté contre un vrai client ; il dépend de patterns de sigscan
+  spécifiques à la version du client, à re-dériver via `ConfigureHooks(...)`.
+
+## Note
+
+Automatiser un client de jeu commercial enfreint les CGU de NosTale et expose à un bannissement de
+compte.

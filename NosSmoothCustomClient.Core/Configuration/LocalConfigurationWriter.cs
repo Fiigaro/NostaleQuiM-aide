@@ -1,0 +1,126 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace NosSmoothCustomClient.Configuration;
+
+/// <summary>
+/// Persists what was changed in the window, without touching the hand-written file.
+/// </summary>
+/// <remarks>
+/// Writes a separate <c>appsettings.local.json</c> loaded after the main one, so its values win.
+/// Rewriting <c>appsettings.json</c> itself would be simpler and would also destroy every comment
+/// in it - and those comments are where the captured values and their provenance are recorded.
+/// </remarks>
+public static class LocalConfigurationWriter
+{
+    /// <summary>The file overrides are written to.</summary>
+    public const string FileName = "appsettings.local.json";
+
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    /// <summary>
+    /// Writes the tunable parts of the options as an override file.
+    /// </summary>
+    /// <param name="options">The live options.</param>
+    /// <param name="directory">Where to write, defaulting to the working directory.</param>
+    /// <returns>The path written, or null with the reason on failure.</returns>
+    public static (string? Path, string? Error) Save(BotOptions options, string? directory = null)
+    {
+        var path = Path.Combine(directory ?? Directory.GetCurrentDirectory(), FileName);
+
+        try
+        {
+            var payload = new
+            {
+                Bot = new
+                {
+                    Skills = options.Skills.Select(s => new
+                    {
+                        s.Key,
+                        s.Name,
+                        CooldownSeconds = Math.Round(s.EffectiveCooldown.TotalSeconds, 1),
+                        s.MpCost,
+                        s.CastId,
+                        s.Enabled
+                    }),
+                    Buffs = options.Buffs.Select(b => new
+                    {
+                        b.Key,
+                        b.Name,
+                        DurationSeconds = Math.Round(b.EffectiveDuration.TotalSeconds, 1),
+                        CooldownSeconds = Math.Round(b.EffectiveCooldown.TotalSeconds, 1),
+                        b.CardId,
+                        b.Enabled
+                    }),
+                    Waypoints = options.Waypoints.Select(w => new
+                    {
+                        w.X,
+                        w.Y,
+                        w.ClickX,
+                        w.ClickY,
+                        w.PositionKnown
+                    }),
+
+                    // The route's click points only mean anything on the minimap they were recorded
+                    // against, so the map travels with them.
+                    options.RouteMapId,
+                    RewardDelaySeconds = Math.Round(options.RewardDelay.TotalSeconds, 1),
+                    RewardSequence = options.RewardSequence.Select(p => new
+                    {
+                        p.Name,
+                        p.X,
+                        p.Y,
+                        p.DoubleClick,
+                        p.WaitAfterMs
+                    }),
+                    options.AutoLaunchInstance,
+                    options.RecordRunKey,
+                    options.Raid,
+
+                    // The headers worth watching on a given server are found once, packet by
+                    // packet; losing them at the next launch means finding them again.
+                    PacketTrace = new
+                    {
+                        options.PacketTrace.Only,
+                        options.PacketTrace.Hide,
+                        options.PacketTrace.ShowIncoming,
+                        options.PacketTrace.ShowOutgoing
+                    },
+                    SendMacros = options.SendMacros.Select(m => new
+                    {
+                        m.Name,
+                        Kind = m.Kind.ToString(),
+                        m.Body,
+                        m.Repetitions,
+                        m.IntervalMs
+                    }),
+                    StartupSequence = options.StartupSequence.Select(s => new
+                    {
+                        s.Name,
+                        Action = s.Action.ToString(),
+                        s.Key,
+                        s.X,
+                        s.Y,
+                        s.DoubleClick,
+                        s.WaitBeforeMs,
+                        s.UntilMap,
+                        s.UntilX,
+                        s.UntilY,
+                        s.TimeoutMs
+                    })
+                }
+            };
+
+            File.WriteAllText(path, JsonSerializer.Serialize(payload, Options));
+            return (path, null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return (null, ex.Message);
+        }
+    }
+}
