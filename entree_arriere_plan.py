@@ -4,25 +4,35 @@
 entree_arriere_plan.py
 ======================
 
-Envoi de touches et de clics directement à la fenêtre d'un processus (messages
-Windows PostMessage), sans qu'elle ait besoin d'être au premier plan.
+Envoi de touches et de clics directement à la fenêtre du jeu (messages Windows
+PostMessage), sans qu'elle ait besoin d'être au premier plan.
 
-La fenêtre est retrouvée à partir du nom du processus (ex. NostaleClientX.exe),
-comme le fait le bot de farm pour la lecture mémoire. Aucune dépendance externe.
+Détection du jeu : mêmes règles que le bot NosSmooth (NosSmoothCustomClient) :
 
-Limite : le jeu doit lire ses entrées via les messages de fenêtre
+  * Le processus se trouve par son nom (.exe) si on en donne un ; sinon, ou si
+    ce nom ne correspond à rien, par son dossier : un .exe hors du dossier
+    Windows qui a un dossier « NostaleData » à côté de lui est un client NosTale.
+    Le nom d'un .exe varie d'un serveur privé à l'autre, le dossier non.
+  * La fenêtre visée est celle de classe « TNosTaleMainF » (formulaire Delphi du
+    jeu), pas la « fenêtre principale » de Windows, qui peut être une coque qui
+    ignore le clavier.
+
+Limites : le jeu doit lire ses entrées via les messages de fenêtre
 (WM_KEYDOWN / WM_LBUTTONDOWN). Un jeu qui interroge le clavier ou la souris
-directement (GetAsyncKeyState, DirectInput, Raw Input) ignorera ces messages ;
-dans ce cas, utilise le mode « premier plan ».
+directement les ignorera. Pour la souris, le mode « curseur réel » déplace le
+vrai curseur sur le point puis clique : il marche même si le jeu ignore les
+messages de souris, mais la fenêtre du jeu doit alors être visible à cet endroit.
 
 Les coordonnées de clic sont relatives à la zone cliente de la fenêtre du jeu
 (son coin haut-gauche = 0, 0), donc indépendantes de sa position à l'écran.
 """
 
+import ntpath
 import os
 import string
 import sys
 import time
+from collections import namedtuple
 
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
@@ -30,6 +40,9 @@ WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 MK_LBUTTON = 0x0001
+
+CLASSE_FENETRE_JEU = "TNosTaleMainF"
+DOSSIER_DONNEES = "NostaleData"
 
 _VK = {
     "enter": 0x0D, "return": 0x0D, "space": 0x20, "esc": 0x1B, "escape": 0x1B,
@@ -71,6 +84,68 @@ def _lparam_souris(x, y):
 
 
 # ---------------------------------------------------------------------------
+# DÉTECTION DU JEU (logique pure, testable hors Windows)
+# ---------------------------------------------------------------------------
+# Une fenêtre de haut niveau et le processus qui la possède.
+FenetreInfo = namedtuple("FenetreInfo", "hwnd pid classe titre visible surface chemin")
+Selection = namedtuple("Selection", "fenetre pids methode repli")
+
+
+def est_chemin_client(chemin, dossier_windows="", existe=os.path.isdir):
+    """Un .exe est un client NosTale s'il a un dossier NostaleData à côté de lui.
+
+    Le chemin doit être absolu (sinon on testerait le dossier courant, et tout
+    processus finirait par correspondre) et hors du dossier Windows (un jeu n'y
+    vit jamais : cette règle empêche de viser un processus système par erreur).
+    """
+    if not chemin or not ntpath.isabs(chemin):
+        return False
+    dossier = ntpath.dirname(chemin)
+    if dossier_windows and dossier.lower().startswith(dossier_windows.lower()):
+        return False
+    return bool(existe(ntpath.join(dossier, DOSSIER_DONNEES)))
+
+
+def _rang_fenetre(fenetre):
+    """Plus petit = meilleur. None = fenêtre inutilisable pour le jeu."""
+    if fenetre.classe == CLASSE_FENETRE_JEU:
+        return (0, -fenetre.surface)
+    if "nostale" in fenetre.classe.lower():
+        return (1, -fenetre.surface)
+    if fenetre.visible and fenetre.titre:
+        return (2, -fenetre.surface)
+    return None
+
+
+def selectionner(fenetres, nom_processus="", pid=0, dossier_windows="", existe=os.path.isdir):
+    """Choisit la fenêtre du jeu parmi toutes les fenêtres de haut niveau.
+
+    Ordre : PID imposé ; sinon nom du .exe ; sinon (ou si ce nom ne correspond à
+    rien) dossier NostaleData. `repli` est vrai quand un nom avait été donné
+    mais que seule la détection par dossier a trouvé le jeu.
+    """
+    nom = ntpath.basename(nom_processus or "").lower()
+    candidates, methode, repli = [], "", False
+
+    if pid:
+        candidates, methode = [f for f in fenetres if f.pid == pid], "pid"
+    else:
+        if nom:
+            candidates = [f for f in fenetres if ntpath.basename(f.chemin).lower() == nom]
+            methode = "nom"
+        if not candidates:
+            repli = bool(nom)
+            candidates = [f for f in fenetres if est_chemin_client(f.chemin, dossier_windows, existe)]
+            methode = "dossier"
+
+    utilisables = [f for f in candidates if _rang_fenetre(f) is not None]
+    if not utilisables:
+        return Selection(None, sorted({f.pid for f in candidates}), methode, repli)
+    choisie = min(utilisables, key=lambda f: (_rang_fenetre(f), f.pid))
+    return Selection(choisie, sorted({f.pid for f in utilisables}), methode, repli)
+
+
+# ---------------------------------------------------------------------------
 # API WIN32 (remplaçable dans les tests)
 # ---------------------------------------------------------------------------
 class ApiWin32:
@@ -89,18 +164,25 @@ class ApiWin32:
         u.MapVirtualKeyW.restype = wt.UINT
         u.IsWindow.argtypes = [wt.HWND]
         u.IsWindowVisible.argtypes = [wt.HWND]
-        u.GetWindow.argtypes = [wt.HWND, wt.UINT]
-        u.GetWindow.restype = wt.HWND
-        u.GetWindowTextLengthW.argtypes = [wt.HWND]
+        u.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
+        u.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
         u.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
         u.GetClientRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
         u.ScreenToClient.argtypes = [wt.HWND, ctypes.POINTER(wt.POINT)]
+        u.ClientToScreen.argtypes = [wt.HWND, ctypes.POINTER(wt.POINT)]
+        u.GetCursorPos.argtypes = [ctypes.POINTER(wt.POINT)]
+        u.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        u.mouse_event.argtypes = [wt.DWORD, wt.DWORD, wt.DWORD, wt.DWORD, ctypes.c_size_t]
         k.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
         k.OpenProcess.restype = wt.HANDLE
         k.QueryFullProcessImageNameW.argtypes = [
             wt.HANDLE, wt.DWORD, wt.LPWSTR, ctypes.POINTER(wt.DWORD)]
         k.CloseHandle.argtypes = [wt.HANDLE]
 
+        self.dossier_windows = os.environ.get("WINDIR", "C:\\Windows")
+        self.existe = os.path.isdir
+
+    # --- messages -----------------------------------------------------------
     def post(self, hwnd, message, wparam, lparam):
         return bool(self.user32.PostMessageW(hwnd, message, wparam, lparam))
 
@@ -110,12 +192,31 @@ class ApiWin32:
     def fenetre_valide(self, hwnd):
         return bool(self.user32.IsWindow(hwnd))
 
+    # --- coordonnées et curseur ------------------------------------------------
     def ecran_vers_client(self, hwnd, x, y):
         point = self._wt.POINT(int(x), int(y))
         self.user32.ScreenToClient(hwnd, self._ctypes.byref(point))
         return point.x, point.y
 
-    def _nom_processus(self, pid):
+    def client_vers_ecran(self, hwnd, x, y):
+        point = self._wt.POINT(int(x), int(y))
+        self.user32.ClientToScreen(hwnd, self._ctypes.byref(point))
+        return point.x, point.y
+
+    def curseur(self):
+        point = self._wt.POINT()
+        if not self.user32.GetCursorPos(self._ctypes.byref(point)):
+            return None
+        return point.x, point.y
+
+    def deplacer_curseur(self, x, y):
+        return bool(self.user32.SetCursorPos(int(x), int(y)))
+
+    def bouton_gauche(self, enfonce):
+        self.user32.mouse_event(0x0002 if enfonce else 0x0004, 0, 0, 0, 0)
+
+    # --- recensement des fenêtres -------------------------------------------------
+    def _chemin_processus(self, pid):
         ctypes, wt = self._ctypes, self._wt
         poignee = self.kernel32.OpenProcess(0x1000, False, pid)   # QUERY_LIMITED_INFORMATION
         if not poignee:
@@ -124,53 +225,92 @@ class ApiWin32:
             tampon = ctypes.create_unicode_buffer(1024)
             taille = wt.DWORD(1024)
             if self.kernel32.QueryFullProcessImageNameW(poignee, 0, tampon, ctypes.byref(taille)):
-                return os.path.basename(tampon.value).lower()
+                return tampon.value
             return ""
         finally:
             self.kernel32.CloseHandle(poignee)
 
-    def trouver_fenetre(self, nom_processus):
-        """Fenêtre principale visible du processus (la plus grande), ou None."""
+    def lister_fenetres(self):
+        """Toutes les fenêtres de haut niveau dont le processus est lisible."""
         ctypes, wt, u = self._ctypes, self._wt, self.user32
-        cible = os.path.basename(nom_processus).lower()
-        trouvees, noms = [], {}
+        fenetres, chemins = [], {}
 
         @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
         def rappel(hwnd, _):
-            if not u.IsWindowVisible(hwnd) or u.GetWindow(hwnd, 4):   # GW_OWNER
-                return True
-            if u.GetWindowTextLengthW(hwnd) == 0:
-                return True
             pid = wt.DWORD()
             u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if pid.value not in noms:
-                noms[pid.value] = self._nom_processus(pid.value)
-            if noms[pid.value] == cible:
-                zone = wt.RECT()
-                u.GetClientRect(hwnd, ctypes.byref(zone))
-                trouvees.append((zone.right * zone.bottom, hwnd))
+            if pid.value not in chemins:
+                chemins[pid.value] = self._chemin_processus(pid.value)
+            if not chemins[pid.value]:
+                return True
+            classe = ctypes.create_unicode_buffer(256)
+            titre = ctypes.create_unicode_buffer(256)
+            u.GetClassNameW(hwnd, classe, 256)
+            u.GetWindowTextW(hwnd, titre, 256)
+            zone = wt.RECT()
+            u.GetClientRect(hwnd, ctypes.byref(zone))
+            fenetres.append(FenetreInfo(
+                hwnd, pid.value, classe.value, titre.value, bool(u.IsWindowVisible(hwnd)),
+                zone.right * zone.bottom, chemins[pid.value]))
             return True
 
         u.EnumWindows(rappel, 0)
-        return max(trouvees)[1] if trouvees else None
+        return fenetres
 
 
 # ---------------------------------------------------------------------------
 # ENTRÉE VERS UNE FENÊTRE
 # ---------------------------------------------------------------------------
 class EntreeFenetre:
-    def __init__(self, nom_processus, api=None):
-        self.nom_processus = nom_processus
+    def __init__(self, nom_processus="", api=None, pid=0):
+        self.nom_processus = (nom_processus or "").strip()
+        self.pid = int(pid or 0)
         self.api = api or ApiWin32()
         self.hwnd = None
+        self.rapport = []   # Lignes décrivant ce qui a été trouvé, et ce qui mérite attention
 
     def connecter(self):
-        self.hwnd = self.api.trouver_fenetre(self.nom_processus)
-        if not self.hwnd:
-            raise RuntimeError("Fenêtre du processus '%s' introuvable. Le jeu est-il lancé "
-                               "(et visible, pas réduit dans la barre des tâches) ?"
-                               % self.nom_processus)
+        api = self.api
+        selection = selectionner(api.lister_fenetres(), self.nom_processus, self.pid,
+                                 api.dossier_windows, api.existe)
+        fenetre = selection.fenetre
+        if fenetre is None:
+            raise RuntimeError(self._message_introuvable(selection))
+
+        self.hwnd = fenetre.hwnd
+        self.rapport = [
+            "Jeu trouvé : %s (pid %d), fenêtre classe \"%s\"%s - trouvé par %s." % (
+                ntpath.basename(fenetre.chemin), fenetre.pid, fenetre.classe,
+                " \"%s\"" % fenetre.titre if fenetre.titre else "",
+                {"pid": "le PID", "nom": "le nom du processus",
+                 "dossier": "le dossier NostaleData"}[selection.methode])]
+        if selection.repli:
+            self.rapport.append(
+                "Le nom '%s' ne correspond à aucun processus ; le client a été trouvé grâce à son "
+                "dossier NostaleData. Mets '%s' dans le champ Processus."
+                % (self.nom_processus, ntpath.basename(fenetre.chemin)))
+        if len(selection.pids) > 1:
+            self.rapport.append(
+                "%d clients trouvés (pids %s) : le pid %d est utilisé. Renseigne le PID pour en "
+                "choisir un autre." % (len(selection.pids), ", ".join(map(str, selection.pids)),
+                                       fenetre.pid))
+        if fenetre.classe != CLASSE_FENETRE_JEU:
+            self.rapport.append(
+                "Ce n'est pas la classe attendue \"%s\" : si rien ne bouge dans le jeu, "
+                "c'est la première piste." % CLASSE_FENETRE_JEU)
         return self.hwnd
+
+    def _message_introuvable(self, selection):
+        if self.pid:
+            return ("Aucune fenêtre utilisable pour le PID %d. Le jeu est-il lancé, et ce PID "
+                    "est-il le bon (Gestionnaire des tâches, onglet Détails) ?" % self.pid)
+        if selection.pids:
+            return ("Le processus du jeu (pid %s) est trouvé mais n'a aucune fenêtre utilisable. "
+                    "Est-il réduit dans la barre des tâches ?" % ", ".join(map(str, selection.pids)))
+        cherche = ("le processus '%s', puis " % self.nom_processus) if self.nom_processus else ""
+        return ("Aucun client NosTale trouvé : le bot cherche %sun .exe qui a un dossier "
+                "« %s » à côté de lui. Le jeu est-il lancé (et pas dans le dossier Windows) ? "
+                "Sinon renseigne le PID du jeu." % (cherche, DOSSIER_DONNEES))
 
     def _fenetre(self):
         """Fenêtre courante ; la retrouve si le jeu a été relancé entre-temps."""
@@ -197,9 +337,25 @@ class EntreeFenetre:
         self.key_up(touche)
 
     def click(self, x, y, duree=0.05):
-        """Clic gauche en (x, y), relatif à la zone cliente de la fenêtre."""
+        """Clic gauche en (x, y), relatif à la zone cliente, par messages de fenêtre."""
         hwnd, position = self._fenetre(), _lparam_souris(x, y)
         self.api.post(hwnd, WM_MOUSEMOVE, 0, position)
         self.api.post(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, position)
         time.sleep(duree)
         self.api.post(hwnd, WM_LBUTTONUP, 0, position)
+
+    def click_reel(self, x, y, duree=0.05):
+        """Clic avec le vrai curseur, remis ensuite où il était.
+
+        Pour un jeu qui ignore les messages de souris. Le curseur saute un
+        instant et la fenêtre du jeu doit être visible au point visé.
+        """
+        api, hwnd = self.api, self._fenetre()
+        ecran = api.client_vers_ecran(hwnd, x, y)
+        precedent = api.curseur()
+        api.deplacer_curseur(*ecran)
+        api.bouton_gauche(True)
+        time.sleep(duree)
+        api.bouton_gauche(False)
+        if precedent:
+            api.deplacer_curseur(*precedent)

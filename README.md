@@ -93,11 +93,20 @@ pip install pydirectinput    (seulement si tu utilises le mode premier_plan)
 
 ### Mode d'envoi : arrière-plan ou premier plan
 
-- **`arriere_plan`** (défaut) : le bot retrouve la fenêtre du jeu à partir du **nom du
-  processus** (`NostaleClientX.exe`, le même réglage que le bot de farm) et lui envoie
-  les touches et les clics directement. NosTale peut rester derrière d'autres fenêtres,
-  mais **pas réduite dans la barre des tâches**. Les coordonnées `clic X Y` sont alors
-  relatives à la fenêtre du jeu (coin haut-gauche = 0, 0).
+- **`arriere_plan`** (défaut) : le jeu reçoit les touches et les clics directement, il peut
+  rester derrière d'autres fenêtres (mais **pas réduit dans la barre des tâches**). Les
+  coordonnées `clic X Y` sont relatives à la fenêtre du jeu (coin haut-gauche = 0, 0).
+  Le jeu est détecté **comme dans le bot NosSmooth** :
+  1. par le nom de son `.exe` (champ *Processus du jeu*) ;
+  2. à défaut, par son **dossier** : un `.exe` (hors dossier Windows) qui a un dossier
+     `NostaleData` à côté de lui. Le champ peut donc rester **vide** : le nom de l'exe varie
+     d'un serveur privé à l'autre, le dossier non ;
+  3. la fenêtre visée est celle de classe `TNosTaleMainF`, pas la « fenêtre principale » de Windows.
+
+  Plusieurs clients ouverts : le bot en prend un et le dit dans le journal ; renseigne le **PID**
+  (Gestionnaire des tâches, onglet Détails) pour choisir le bon.
+  Clics : `messages` (défaut) les poste à la fenêtre ; si le jeu les ignore, passe en
+  `curseur_reel` (le vrai curseur clique puis revient ; la fenêtre doit être visible au point visé).
 - **`premier_plan`** : touches et clics globaux (`pydirectinput`), le jeu doit être
   devant. Coordonnées `clic` = écran.
 

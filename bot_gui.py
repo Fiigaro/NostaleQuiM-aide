@@ -310,16 +310,21 @@ class InterfaceBot(tk.Tk):
         envoi = ttk.LabelFrame(droite, text="Envoi des touches")
         envoi.pack(fill="x")
         self._liste(envoi, 0, 0, "Mode :", "RAID_MODE", ["arriere_plan", "premier_plan"], largeur=14)
+        self._liste(envoi, 1, 0, "Clics :", "RAID_CLIC", ["messages", "curseur_reel"], largeur=14)
         ttk.Label(envoi, text="Processus du jeu :").grid(
-            row=1, column=0, sticky="w", padx=(8, 4), pady=3)
+            row=2, column=0, sticky="w", padx=(8, 4), pady=3)
         # Même variable que l'onglet « Processus & Offsets » : un seul réglage pour les deux bots.
         ttk.Entry(envoi, textvariable=self.vars["PROCESS_NAME"], width=22).grid(
-            row=1, column=1, sticky="w", padx=(0, 8), pady=3)
+            row=2, column=1, sticky="w", padx=(0, 8), pady=3)
+        self._champ(envoi, 3, 0, "PID (0 = auto) :", "RAID_PID", largeur=10)
         ttk.Label(envoi, foreground="#555555", justify="left",
-                  text=("arriere_plan : la fenêtre du jeu est trouvée par son processus\n"
-                        "et reçoit les touches même derrière d'autres fenêtres.\n"
+                  text=("arriere_plan : le jeu est trouvé par le nom de son .exe, sinon par\n"
+                        "son dossier NostaleData (le nom peut rester vide). Il reçoit\n"
+                        "les touches même derrière d'autres fenêtres.\n"
+                        "curseur_reel : le vrai curseur clique (si le jeu ignore les\n"
+                        "clics postés) ; le jeu doit alors être visible au point visé.\n"
                         "premier_plan : touches globales, le jeu doit être devant.")
-                  ).grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 6))
+                  ).grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 6))
 
         boucle = ttk.LabelFrame(droite, text="Boucle")
         boucle.pack(fill="x", pady=(8, 0))
@@ -356,6 +361,8 @@ class InterfaceBot(tk.Tk):
     # --- Configuration <-> widgets ---------------------------------------
     def appliquer_config_raid(self, config):
         self.vars["RAID_MODE"].set(config["MODE"])
+        self.vars["RAID_CLIC"].set(config["CLIC"])
+        self.vars["RAID_PID"].set("%d" % config["PID"])
         self.vars["RAID_NB_TOURS"].set("%d" % config["NB_TOURS"])
         self.vars["RAID_PAUSE"].set("%g" % config["PAUSE_ENTRE_TOURS"])
         self.vars["RAID_DELAI"].set("%d" % config["DELAI_DEMARRAGE"])
@@ -375,6 +382,8 @@ class InterfaceBot(tk.Tk):
                 return 0
 
         config["MODE"] = self.vars["RAID_MODE"].get()
+        config["CLIC"] = self.vars["RAID_CLIC"].get()
+        config["PID"] = nombre("RAID_PID", "PID", entier=True, mini=0)
         config["PROCESS_NAME"] = self.vars["PROCESS_NAME"].get().strip()
         config["NB_TOURS"] = nombre("RAID_NB_TOURS", "Nombre de raids", entier=True, mini=0)
         config["PAUSE_ENTRE_TOURS"] = nombre("RAID_PAUSE", "Pause entre raids", mini=0)
@@ -593,8 +602,10 @@ class InterfaceBot(tk.Tk):
 
         mode = self.vars["RAID_MODE"].get()
         processus = self.vars["PROCESS_NAME"].get().strip()
-        if mode == "arriere_plan" and not processus:
-            messagebox.showerror("Capture impossible", "Renseigne le nom du processus du jeu.")
+        try:
+            pid = parser_nombre(self.vars["RAID_PID"].get(), "PID", entier=True, mini=0)
+        except ValueError as erreur:
+            messagebox.showerror("Capture impossible", str(erreur))
             return
 
         self.bouton_capture.configure(state="disabled")
@@ -605,7 +616,7 @@ class InterfaceBot(tk.Tk):
             point, erreur = bot_raid.capturer_clic(souris=souris), None
             if point is not None and mode == "arriere_plan":
                 try:   # coordonnées relatives à la fenêtre du jeu
-                    point = bot_raid.ecran_vers_client(processus, point)
+                    point = bot_raid.ecran_vers_client(processus, point, pid=pid)
                 except Exception as exception:
                     point, erreur = None, str(exception)
             self.after(0, lambda: self._fin_capture(point, erreur, mode))

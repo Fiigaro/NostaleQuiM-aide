@@ -18,11 +18,17 @@ Actions disponibles pour une étape :
     {"action": "clic",      "x": 960, "y": 540}               clic souris
 
 Deux modes d'envoi (réglage "MODE") :
-    "arriere_plan"  (défaut) la fenêtre du jeu est retrouvée par le nom de son
-                    processus (PROCESS_NAME) et reçoit les touches/clics
+    "arriere_plan"  (défaut) la fenêtre du jeu reçoit les touches/clics
                     directement : elle peut rester derrière d'autres fenêtres.
-                    Les coordonnées `clic` sont relatives à la zone cliente de
-                    la fenêtre du jeu (coin haut-gauche = 0, 0).
+                    Le jeu est retrouvé comme le fait le bot NosSmooth : par le
+                    nom du .exe (PROCESS_NAME) puis, à défaut, par le dossier
+                    « NostaleData » à côté du .exe ; PROCESS_NAME peut rester
+                    vide, et PID force un client précis (0 = auto). La fenêtre
+                    visée est celle de classe TNosTaleMainF. Les coordonnées
+                    `clic` sont relatives à sa zone cliente (coin haut-gauche
+                    = 0, 0). CLIC = "messages" (défaut) ou "curseur_reel" (vrai
+                    curseur, pour un jeu qui ignore les clics postés ; la
+                    fenêtre doit alors être visible au point cliqué).
     "premier_plan"  touches et clics globaux (pydirectinput) : la fenêtre du jeu
                     doit être au premier plan. Coordonnées `clic` = écran.
 
@@ -59,7 +65,9 @@ from bot_farm_nostale import (ArretDemande, demarrer_surveillance_echap, dossier
 # ===========================================================================
 CONFIG_DEFAUT = {
     "MODE": "arriere_plan",   # "arriere_plan" (fenêtre ciblée par processus) ou "premier_plan"
-    "PROCESS_NAME": "NostaleClientX.exe",   # Même réglage que le bot de farm
+    "PROCESS_NAME": "NostaleClientX.exe",   # Même réglage que le bot de farm ; vide = détection auto
+    "PID": 0,                 # Force un client précis (Gestionnaire des tâches > Détails) ; 0 = auto
+    "CLIC": "messages",       # "messages" ou "curseur_reel" (mode arrière-plan uniquement)
     "DELAI_DEMARRAGE": 5,     # Compte à rebours avant le 1er tour (secondes)
     "NB_TOURS": 0,            # 0 = boucle infinie
     "PAUSE_ENTRE_TOURS": 3.0, # Secondes d'attente entre la fin d'un tour et le suivant
@@ -218,8 +226,13 @@ def valider_config(config):
             problemes.append("Étape %d : action inconnue %r." % (i, action))
     mode = config.get("MODE", "arriere_plan")
     if mode == "arriere_plan":
-        if not (config.get("PROCESS_NAME") or "").strip():
-            problemes.append("PROCESS_NAME est vide (nom du .exe du jeu).")
+        if config.get("CLIC", "messages") not in ("messages", "curseur_reel"):
+            problemes.append("CLIC inconnu %r (messages ou curseur_reel)." % config.get("CLIC"))
+        try:
+            if int(config.get("PID", 0) or 0) < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            problemes.append("PID doit être un entier >= 0 (0 = détection automatique).")
     elif mode == "premier_plan":
         if pydirectinput is None:
             problemes.append("Bibliothèque 'pydirectinput' introuvable : pip install pydirectinput")
@@ -257,8 +270,13 @@ class EntreeArrierePlan:
 
     PAS_REPETITION = 0.1   # Un clavier réel répète la touche maintenue : on l'imite
 
-    def __init__(self, nom_processus, fenetre=None):
-        self.fenetre = fenetre or entree_arriere_plan.EntreeFenetre(nom_processus)
+    def __init__(self, nom_processus="", pid=0, clic_reel=False, fenetre=None):
+        self.fenetre = fenetre or entree_arriere_plan.EntreeFenetre(nom_processus, pid=pid)
+        self.clic_reel = clic_reel
+
+    @property
+    def rapport(self):
+        return self.fenetre.rapport
 
     def connecter(self):
         return self.fenetre.connecter()
@@ -280,18 +298,23 @@ class EntreeArrierePlan:
             self.fenetre.key_up(touche)
 
     def click(self, x, y):
-        self.fenetre.click(x, y)
+        if self.clic_reel:
+            self.fenetre.click_reel(x, y)
+        else:
+            self.fenetre.click(x, y)
 
 
 def construire_entree(config):
     if config.get("MODE", "arriere_plan") == "premier_plan":
         return EntreePremierPlan()
-    return EntreeArrierePlan(config["PROCESS_NAME"].strip())
+    return EntreeArrierePlan((config.get("PROCESS_NAME") or "").strip(),
+                             pid=int(config.get("PID", 0) or 0),
+                             clic_reel=config.get("CLIC", "messages") == "curseur_reel")
 
 
-def ecran_vers_client(nom_processus, point, api=None):
+def ecran_vers_client(nom_processus, point, pid=0, api=None):
     """Convertit un point écran (x, y) en coordonnées de la fenêtre du jeu."""
-    fenetre = entree_arriere_plan.EntreeFenetre(nom_processus, api=api)
+    fenetre = entree_arriere_plan.EntreeFenetre(nom_processus, api=api, pid=pid)
     fenetre.connecter()
     return fenetre.ecran_vers_client(*point)
 
@@ -385,8 +408,10 @@ class BotRaid:
             self.log("[Erreur] %s" % erreur)
             return 1
         arriere_plan = self.cfg.get("MODE", "arriere_plan") == "arriere_plan"
+        for ligne in getattr(self.entree, "rapport", []):
+            self.log(ligne)
         if arriere_plan:
-            self.log("Fenêtre de '%s' trouvée - envoi en arrière-plan." % self.cfg["PROCESS_NAME"])
+            self.log("Envoi en arrière-plan.")
 
         demarrer_surveillance_echap(self.arret)
         try:
